@@ -34,7 +34,7 @@ from models import (
     OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
     STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
-    SessionLocal, Submission, User, Workspace, effective_status, get_db,
+    SessionLocal, Submission, User, Workspace, canonical, effective_status, get_db,
     get_or_create_person, init_db, is_dormant, known_people, known_venues,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
     utcnow,
@@ -207,6 +207,75 @@ def home(request: Request, user: User = Depends(get_current_user),
     return templates.TemplateResponse(
         request, "workspaces.html",
         {"user": user, "rows": rows, "counts": counts},
+    )
+
+
+@app.get("/me", response_class=HTMLResponse)
+def personal_board(request: Request, q: str | None = None, dormant: int = 0,
+                   ws_filter: str = "", user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """
+    Everything the caller is an author on, across every workspace they belong to.
+
+    Deliberately NOT a Workspace row. A project lives in exactly one workspace,
+    and a workspace is a group with members; a personal one holding other
+    groups' projects would put the same project in two access domains and quietly
+    undo §3. This is a view: the cards are gathered by authorship, filtered by
+    the memberships the caller already has, and each one stays governed by its
+    own workspace — the move endpoint is still /api/w/{its slug}/move, so a card
+    from a workspace where you only have `read` cannot be dragged.
+    """
+    scopes = user_workspaces(db, user)
+    allowed = {ws.id: (ws, role) for ws, role in scopes}
+    if not allowed:
+        return templates.TemplateResponse(
+            request, "personal.html",
+            {"user": user, "columns": {s: [] for s in STATUSES}, "total": 0,
+             "q": q or "", "dormant": dormant, "scopes": [], "ws_filter": "",
+             "venues": [], "role_of": {}, "is_dormant": lambda p: False})
+
+    # The caller's Person: linked to the account when it exists, otherwise
+    # matched on the canonical name, because most authorships came from Notion
+    # before anyone had an account.
+    me = (db.query(Person).filter(Person.user_id == user.id).first()
+          or db.query(Person)
+               .filter(Person.canonical_name == canonical(user.name)).first())
+    if me is None:
+        projects = []
+    else:
+        projects = [a.project for a in me.authorships
+                    if a.project and a.project.workspace_id in allowed]
+
+    if ws_filter:
+        projects = [p for p in projects
+                    if allowed[p.workspace_id][0].slug == ws_filter]
+    if q:
+        needle = q.lower()
+        projects = [p for p in projects
+                    if needle in (p.title or "").lower()
+                    or needle in (p.summary or "").lower()
+                    or needle in (p.final_title or "").lower()]
+    if dormant:
+        projects = [p for p in projects
+                    if is_dormant(p, allowed[p.workspace_id][0].dormant_after_days)]
+
+    projects.sort(key=lambda p: (p.position, p.id))
+    columns = {s: [] for s in STATUSES}
+    for p in projects:
+        columns.setdefault(p.status, []).append(p)
+
+    venues = sorted({v for ws, _ in scopes for v in known_venues(db, ws)},
+                    key=str.lower)
+    return templates.TemplateResponse(
+        request, "personal.html",
+        {"user": user, "columns": columns, "total": len(projects),
+         "q": q or "", "dormant": dormant, "ws_filter": ws_filter,
+         "scopes": scopes, "venues": venues,
+         "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in projects},
+         "name_of": {p.id: allowed[p.workspace_id][0].name for p in projects},
+         "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
+         "is_dormant": lambda p: is_dormant(
+             p, allowed[p.workspace_id][0].dormant_after_days)},
     )
 
 

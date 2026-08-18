@@ -1,38 +1,47 @@
 {% extends "base.html" %}
-{% block title %}{{ ws.name }} — PaperTrail{% endblock %}
+{% block title %}My work — PaperTrail{% endblock %}
 {% block main_class %}board-main{% endblock %}
 {% block body %}
 
 <div class="board-head">
   <div>
-    <h1>{{ ws.name }}</h1>
-    {% if ws.description %}<p class="muted small">{{ ws.description }}</p>{% endif %}
-  </div>
-  <div class="board-actions">
-    <span class="pill pill-{{ role }}">{{ role }}</span>
-    <a class="btn btn-ghost" href="/w/{{ ws.slug }}/done">Hall of done</a>
-    {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Members</a>{% endif %}
-    {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">New project</button>{% endif %}
+    <h1>My work</h1>
+    <p class="muted small">
+      {{ total }} project{{ '' if total == 1 else 's' }} you are an author on,
+      across {{ scopes|length }} workspace{{ '' if scopes|length == 1 else 's' }}.
+      Each card still belongs to its own workspace and keeps its rules there.
+    </p>
   </div>
 </div>
 
-<form class="filters" method="get" action="/w/{{ ws.slug }}">
+<form class="filters" method="get" action="/me">
   <input type="search" name="q" value="{{ q }}" placeholder="Search title or summary…">
-  <select name="person">
-    <option value="">All authors</option>
-    {% for p in people %}
-    <option value="{{ p.id }}" {% if sel_person == p.id %}selected{% endif %}>{{ p.name }}</option>
+  <select name="ws_filter">
+    <option value="">All workspaces</option>
+    {% for ws, role in scopes %}
+    <option value="{{ ws.slug }}" {% if ws_filter == ws.slug %}selected{% endif %}>{{ ws.name }}</option>
     {% endfor %}
   </select>
   <label class="check">
     <input type="checkbox" name="dormant" value="1" {% if dormant %}checked{% endif %}>
-    dormant only ({{ dormant_days }}d)
+    dormant only
   </label>
   <button class="btn btn-ghost" type="submit">Filter</button>
-  {% if q or sel_person or dormant %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
+  {% if q or ws_filter or dormant %}<a class="btn btn-ghost" href="/me">Clear</a>{% endif %}
 </form>
 
-<div class="kanban" id="kanban" data-slug="{{ ws.slug }}" data-canwrite="{{ 1 if can_write else 0 }}">
+{% if not total %}
+<div class="card">
+  <p class="muted">Nothing here yet.</p>
+  <p class="small muted">This view collects the projects where you appear as an
+    author. If a project of yours is missing, add yourself to its Authors.</p>
+</div>
+{% endif %}
+
+{# data-canwrite is per card here, not per board: the same person can be
+   `write` in one workspace and `read` in another, and the card must obey the
+   workspace it actually lives in. #}
+<div class="kanban" id="kanban" data-canwrite="1" data-mixed="1">
   {% for st in STATUSES %}
   <section class="col" data-status="{{ st }}">
     <header class="col-head">
@@ -43,19 +52,16 @@
     <div class="col-body" data-status="{{ st }}">
       {% for p in columns[st] %}
       {% set eff = effective_status(p) %}
-      <article class="pcard" draggable="{{ 'true' if can_write else 'false' }}"
-               data-id="{{ p.id }}">
-        <a class="pcard-title" href="/w/{{ ws.slug }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
+      {% set can = role_of[p.id] in ('write', 'admin') %}
+      <article class="pcard" draggable="{{ 'true' if can else 'false' }}"
+               data-id="{{ p.id }}" data-slug="{{ slug_of[p.id] }}">
+        <a class="pcard-title" href="/w/{{ slug_of[p.id] }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
         {% if eff.detail %}<div class="pcard-eff">{{ eff.label }} · {{ eff.detail }}</div>{% endif %}
-        <div class="pcard-meta">
-          {% for a in p.authorships %}<span class="who">{{ a.person.name }}</span>{% endfor %}
-        </div>
         <div class="pcard-badges">
+          <span class="badge badge-ws">{{ name_of[p.id] }}</span>
           {% if is_dormant(p) %}<span class="badge badge-warn">dormant</span>{% endif %}
-          {% if eff.diverges %}<span class="badge badge-danger" title="Declared status disagrees with the submission record">status mismatch</span>{% endif %}
-          {% if p.notes %}<span class="badge">{{ p.notes|length }} notes</span>{% endif %}
           {% if p.output_type and p.output_type != 'paper' %}<span class="badge badge-type">{{ OUTPUT_TYPE_LABELS[p.output_type] }}</span>{% endif %}
-          {% if p.pub_year %}<span class="badge">{{ p.pub_year }}</span>{% endif %}
+          {% if not can %}<span class="badge" title="You only have read access in {{ name_of[p.id] }}">read-only</span>{% endif %}
         </div>
       </article>
       {% endfor %}
@@ -64,32 +70,10 @@
   {% endfor %}
 </div>
 
-{% if can_write %}
-<dialog id="newproj" class="modal">
-  <form method="post" action="/w/{{ ws.slug }}/projects">
-    <h2>New project</h2>
-    <label>Title
-      <input name="title" required autofocus>
-    </label>
-    <label>Initial status
-      <select name="status">
-        {% for st in STATUSES %}<option value="{{ st }}" {% if st == 'idea' %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>{% endfor %}
-      </select>
-    </label>
-    <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" onclick="document.getElementById('newproj').close()">Cancel</button>
-      <button type="submit" class="btn btn-primary">Create</button>
-    </div>
-  </form>
-</dialog>
-
-{# Asked for whenever a card crosses the `submitted` boundary: this is the
-   moment the venue and the outcome are actually known. #}
 <dialog id="submitdlg" class="modal">
-  <form method="dialog" id="submitform">
+  <form method="dialog">
     <h2 id="submitdlg-title">Sent out</h2>
     <p class="muted small" id="submitdlg-sub"></p>
-
     <div id="submitdlg-venue">
       <label>Journal / venue
         <input name="venue" id="submitdlg-venue-input" autocomplete="off"
@@ -102,16 +86,12 @@
         <input type="date" name="submitted_at" id="submitdlg-date">
       </label>
     </div>
-
     <div id="submitdlg-outcome">
       <label>What happened
         <select name="outcome" id="submitdlg-outcome-select"></select>
       </label>
       <p class="muted small" id="submitdlg-hint"></p>
     </div>
-
-    {# The option set depends on the direction of the move, so it is built in JS
-       from these three lists rather than rendered once. #}
     <script type="application/json" id="outcome-sets">
       {{ {"back": OUTCOMES_BACK,
           "revision": OUTCOMES_REVISION,
@@ -121,19 +101,15 @@
           "keeps_open": KEEPS_ATTEMPT_OPEN|list,
           "order": STATUSES} | tojson }}
     </script>
-
-    <label>Note <span class="muted small">(optional, kept on the project)</span>
-      <textarea name="note" id="submitdlg-note" rows="3"
-                placeholder="Editor's reason, next venue in mind, anything worth remembering…"></textarea>
+    <label>Note <span class="muted small">(optional)</span>
+      <textarea name="note" id="submitdlg-note" rows="3"></textarea>
     </label>
-
     <div class="modal-actions">
       <button type="button" class="btn btn-ghost" id="submitdlg-cancel">Cancel</button>
       <button type="button" class="btn btn-primary" id="submitdlg-ok">Save</button>
     </div>
   </form>
 </dialog>
-{% endif %}
 
 <dialog id="projdlg" class="modal modal-wide">
   <button type="button" class="modal-close" id="projdlg-close" aria-label="Close">×</button>

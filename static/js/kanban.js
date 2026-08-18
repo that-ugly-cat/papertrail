@@ -12,9 +12,15 @@
 (function () {
   const board = document.getElementById('kanban');
   if (!board) return;
-  const slug = board.dataset.slug;
+  /* On a single-workspace board the slug lives on the board; in "My work" the
+     cards come from several workspaces, so each carries its own and the move
+     goes to that workspace's endpoint. Authorisation therefore stays exactly
+     where it was: the server checks the caller's role in the workspace the
+     card actually belongs to. */
+  const boardSlug = board.dataset.slug;
   const canWrite = board.dataset.canwrite === '1';
   if (!canWrite) return;
+  const slugOf = card => card.dataset.slug || boardSlug;
 
   const dlg = document.getElementById('submitdlg');
 
@@ -130,6 +136,8 @@
   cards().forEach(bindCard);
 
   function bindCard(card) {
+    /* read-only cards in the mixed view are marked draggable="false" */
+    if (card.getAttribute('draggable') === 'false') return;
     card.addEventListener('dragstart', e => {
       dragged = card;
       origin = card.parentElement;
@@ -195,7 +203,7 @@
       const order = [...body.querySelectorAll('.pcard')].map(c => c.dataset.id);
 
       try {
-        const r = await fetch(`/api/w/${slug}/move`, {
+        const r = await fetch(`/api/w/${slugOf(card)}/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(

@@ -298,3 +298,4 @@ code.key {
 }
 tr.revoked { opacity: .5; }
 .badge-type { color: var(--model, #b794f4); border-color: var(--model, #b794f4); }
+.badge-ws { color: var(--accent-light); border-color: var(--accent); }
