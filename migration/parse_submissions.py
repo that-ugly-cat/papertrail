@@ -468,10 +468,18 @@ MANUAL_DROPS = {
 VENUE_FIXES = {
     "helyon": "Heliyon",
     "ai and society": "AI & Society",
-    "arxiv": "arXiv (preprint)",
     "media outlets": "The Atlantic / MIT Technology Review",
     "“undark magazine” and “the guardian opinion”": "Undark / The Guardian Opinion",
 }
+# Preprint servers are not venues: posting there is not an attempt to publish,
+# it happens *alongside* the real attempt ("in the meanwhile, submitted to
+# ArXiv"). Recorded as a Link(kind='preprint') by preprints_to_links.py, never
+# as a Submission, or the chain grows a phantom step and the card reads as under
+# review at a server that reviews nothing.
+PREPRINT_SERVERS = re.compile(
+    r"^(arxiv|biorxiv|medrxiv|ssrn|psyarxiv|socarxiv|osf|research square)"
+    r"(\s*\(preprint\))?$", re.I)
+
 # Not venues: a toolchain listed in an abstract, file formats, and SNF, which
 # is the funder that pays for the paper, not the place that publishes it.
 JUNK_VENUES = {"python, spacy, bokeh, etc", "i.e. word, tex", "snf",
@@ -527,6 +535,9 @@ def apply_rules(proposal: list[dict]) -> Counter:
             v = (a["venue"] or "").strip()
             if v and NOT_A_SUBMISSION.match(v):
                 stats["scartati: persona, non venue"] += 1
+                continue
+            if v and PREPRINT_SERVERS.match(v):
+                stats["preprint: non e' un tentativo"] += 1
                 continue
             if v.lower() in JUNK_VENUES:
                 a["venue"] = None

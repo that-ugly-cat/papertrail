@@ -139,7 +139,8 @@ OUTPUT_TYPE_LABELS = {
     "other":         "Other",
 }
 
-LINK_KINDS = ["wiki", "file", "grant", "lssr", "doi", "url", "repo"]
+LINK_KINDS = ["wiki", "file", "grant", "lssr", "doi", "preprint", "url",
+              "repo"]
 
 EVENT_TYPES = ["created", "status_change", "note_added", "submission_opened",
                "submission_outcome", "link_added", "authorship_changed",
