@@ -30,6 +30,9 @@
       .then(html => {
         body.innerHTML = html;
         bindForms();
+        /* innerHTML never runs <script>, so anything the card needs has to be
+           re-armed from here. */
+        if (window.PT_initNotes) window.PT_initNotes(body);
         if (!dlg.open) dlg.showModal();
         body.scrollTop = 0;
         if (push) history.pushState({ project: url }, '', url);

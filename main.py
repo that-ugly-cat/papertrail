@@ -883,20 +883,56 @@ def remove_link(slug: str, pid: int, lid: int,
 def open_sub(slug: str, pid: int, venue: str = Form(...),
              submitted_at: str = Form(""),
              acc: WorkspaceAccess = Depends(workspace_dep("write"))):
+    """
+    Open a new attempt at a venue.
+
+    Three things are enforced here and not only in the template, because the
+    template is not the door. The card hides this form while an attempt is
+    open, but a double submit, a back-and-resubmit, or a direct POST would all
+    reach this function — and the same mistake (a rule on the UI, none on the
+    service door) already let 81 records past the venue vocabulary once.
+    """
     db = acc.db
     p = _project_or_404(acc, pid)
+
+    # One open attempt at a time. Two `pending` rows would make the older one
+    # invisible — open_submission() returns the most recent — and it would sit
+    # there forever, which is the exact failure KEEPS_ATTEMPT_OPEN exists to
+    # prevent (SPEC.md §4).
+    live = open_submission(p)
+    if live is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Already out at {live.venue}. Record that outcome first.")
+
+    venue = venue.strip()
+    if not venue:
+        raise HTTPException(status_code=400, detail="A venue is required")
+
     when = utcnow()
     if submitted_at.strip():
         try:
             when = datetime.strptime(submitted_at.strip(), "%Y-%m-%d")
         except ValueError:
-            pass
+            # Silently falling back to today would write a date that lies, and
+            # every latency in the system is a subtraction of two dates
+            # (SPEC.md §10). Refuse instead.
+            raise HTTPException(status_code=400,
+                                detail="Submission date must be YYYY-MM-DD")
+
+    # max(attempt) + 1, not len(): counting rows gives a duplicate number the
+    # first time an attempt is removed or an import leaves a gap.
+    nxt = max((x.attempt or 0) for x in p.submissions) + 1 if p.submissions else 1
     s = Submission(project_id=p.id,
                    venue=snap(venue, known_venues(db, acc.workspace)),
-                   attempt=len(p.submissions) + 1, submitted_at=when,
-                   outcome="pending")
+                   attempt=nxt, submitted_at=when, outcome="pending")
     db.add(s)
-    if p.status in ("ready", "writing", "active"):
+    # `idea` and `developed` are in the set because pressing Send out settles
+    # the question: it is out. Leaving the card declared as an idea would show
+    # "under review" beside "Idea" and flag a mismatch the user just resolved
+    # by acting. `published` and `archived` stay out — recording an old attempt
+    # against a finished project must not resurrect it.
+    if p.status in ("idea", "developed", "active", "writing", "ready"):
         log_event(db, p, acc.user, "status_change",
                   from_status=p.status, to_status="submitted")
         p.status = "submitted"

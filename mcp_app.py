@@ -334,14 +334,28 @@ def open_submission(workspace: str, project_id: int, venue: str,
                     "venue": reopened.venue, "attempt": reopened.attempt,
                     "resubmission": True,
                     "note": "same attempt reopened, the clock kept running"}
+        # A different venue while one is still open is not a resubmission, it
+        # is two live attempts — and the older would stay pending forever, the
+        # same failure the branch above avoids. Refuse and say what to do.
+        if reopened:
+            return _fail(f"Attempt {reopened.attempt} is still open at "
+                         f"'{reopened.venue}'. Record its outcome first, or "
+                         f"pass that venue to reopen the same attempt.")
         # Snap onto a venue already used here, so the model coining
         # "Nature Human Behavior" does not fork the stats for a journal already
         # recorded as "Nature Human Behaviour".
+        # max(attempt) + 1, not len(): counting rows repeats a number as soon as
+        # there is a gap.
+        nxt = (max((x.attempt or 0) for x in p.submissions) + 1
+               if p.submissions else 1)
         s = Submission(project_id=p.id, venue=venue,
-                       attempt=len(p.submissions) + 1, submitted_at=when,
+                       attempt=nxt, submitted_at=when,
                        outcome="pending")
         db.add(s)
-        if p.status != "submitted":
+        # Same set as the web route: sending out settles the question, but a
+        # published or archived project is not resurrected by recording history.
+        if p.status in ("idea", "developed", "active", "writing", "ready",
+                        "in_revision"):
             log_event(db, p, user, "status_change",
                       from_status=p.status, to_status="submitted")
             p.status = "submitted"

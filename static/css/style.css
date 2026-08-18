@@ -387,3 +387,25 @@ tr.revoked { opacity: .5; }
 .trash-main h2 { margin: 0 0 4px; font-size: 15px; }
 .trash-main p { margin: 2px 0; }
 .trash-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ── project card: one save, and notes that can breathe ── */
+.page-head .btn-save { margin-top: 8px; }
+
+.note-compose textarea { min-height: 74px; }
+/* Growing on focus means a long note is comfortable without a second click,
+   and the box stays small when the card is only being read. */
+.note-compose textarea:focus { min-height: 220px; }
+.note-compose-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.note-modal textarea { min-height: 45vh; resize: vertical; }
+.note-modal h2 { margin-top: 0; }
+
+/* Three lines, measured in lines rather than pixels so it holds at any font
+   size. notes.js strips this class where the text does not actually overflow. */
+.note-body.clamp {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.note-body.clamp p { margin: 0 0 4px; }
+.note-more { font-size: 12px; margin-top: 2px; }

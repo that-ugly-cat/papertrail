@@ -35,7 +35,15 @@
 <p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
 
 <div class="page-head">
-  <h1>{{ p.final_title or p.title }}</h1>
+  <div>
+    <h1>{{ p.final_title or p.title }}</h1>
+    {% if can_write %}
+    {# Outside the form on purpose: `form=` lets one button live where it is
+       useful (in sight, under the title) instead of at the bottom of a long
+       column of fields. #}
+    <button class="btn btn-primary btn-save" type="submit" form="details-form">Save</button>
+    {% endif %}
+  </div>
   <div class="badges">
     <span class="badge badge-status">{{ eff.label }}{% if eff.detail %} · {{ eff.detail }}{% endif %}</span>
     {% if dormant %}<span class="badge badge-warn">dormant</span>{% endif %}
@@ -56,7 +64,7 @@
     <div class="card">
       <h2>Details</h2>
       {% if can_write %}
-      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}">
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}" id="details-form">
         <label>Working title
           <input name="title" value="{{ p.title }}" required>
         </label>
@@ -92,7 +100,6 @@
         <label>Summary
           <textarea name="summary" rows="4">{{ p.summary or '' }}</textarea>
         </label>
-        <button class="btn btn-primary" type="submit">Save</button>
       </form>
       <details class="tweak danger-zone">
         <summary>Delete this project</summary>
@@ -118,11 +125,30 @@
     <div class="card">
       <h2>Notes</h2>
       {% if can_write %}
-      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/notes">
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/notes" class="note-compose">
         <textarea name="body" rows="3" placeholder="Markdown accepted…" required></textarea>
-        <button class="btn btn-ghost" type="submit">Add note</button>
+        <div class="note-compose-actions">
+          <button class="btn btn-ghost" type="submit">Add note</button>
+          <button class="linkbtn" type="button" data-note-expand
+                  title="Write in a full-size editor">Bigger editor ⤢</button>
+        </div>
       </form>
+
+      {# A second form rather than a second textarea in the first one: two
+         fields with the same name in one form both submit, and the empty one
+         would win or lose depending on order. Separate forms, same endpoint. #}
+      <dialog id="notedlg" class="modal modal-wide note-modal">
+        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/notes">
+          <h2>New note</h2>
+          <textarea name="body" rows="20" placeholder="Markdown accepted…" required></textarea>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" type="button" data-note-close>Cancel</button>
+            <button class="btn btn-primary" type="submit">Add note</button>
+          </div>
+        </form>
+      </dialog>
       {% endif %}
+
       {% for n in notes %}
       <div class="note">
         <div class="note-head small muted">
@@ -130,7 +156,9 @@
           {{ n.ts.strftime('%d/%m/%Y %H:%M') }}
           {% if n.source != 'web' %}<span class="badge">{{ n.source }}</span>{% endif %}
         </div>
-        <div class="note-body">{{ n.body_md | markdown }}</div>
+        {# `clamp` is removed by notes.js only where the text actually overflows,
+           so short notes never get a pointless "Show more". #}
+        <div class="note-body clamp">{{ n.body_md | markdown }}</div>
       </div>
       {% else %}
       <p class="muted small">No notes yet.</p>
@@ -152,7 +180,7 @@
           {{ w.name }}{% if w.kind == 'personal' %} <span class="badge">personal</span>{% endif %}
         </label>
         {% endfor %}
-        <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+        <button class="btn btn-ghost btn-sm" type="submit">Update sharing</button>
         <p class="muted small">Shared into a workspace means its members can see
           and edit this project.</p>
       </form>
