@@ -149,7 +149,7 @@
           <input type="checkbox" name="workspaces" value="{{ w.slug }}"
                  {% if w.id in project_ws|map(attribute='id')|list %}checked{% endif %}
                  {% if role not in ('write', 'admin') %}disabled title="You cannot change membership of a workspace you only read"{% endif %}>
-          {{ w.name }}
+          {{ w.name }}{% if w.kind == 'personal' %} <span class="badge">personal</span>{% endif %}
         </label>
         {% endfor %}
         <button class="btn btn-ghost btn-sm" type="submit">Save</button>

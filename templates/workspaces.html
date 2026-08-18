@@ -20,7 +20,7 @@
   {% for ws, role in rows %}
   <a class="ws-card" href="/w/{{ ws.slug }}">
     <div class="ws-card-top">
-      <h2>{{ ws.name }}</h2>
+      <h2>{{ ws.name }}{% if ws.kind == 'personal' %} <span class="badge">personal</span>{% endif %}</h2>
       <span class="pill pill-{{ role }}">{{ role }}</span>
     </div>
     {% if ws.description %}<p class="muted small">{{ ws.description }}</p>{% endif %}

@@ -183,6 +183,12 @@ class Workspace(Base):
     # A project with no event for this many days reads as dormant (SPEC.md §5).
     dormant_after_days = Column(Integer, default=180)
     created_at         = Column(DateTime, default=utcnow)
+    # 'group' (a research group) or 'personal' (one per user, SPEC.md §3).
+    # A personal workspace is a workspace and nothing else: same Membership,
+    # same role_for(), same 404. The distinction is only so the UI can pick a
+    # sensible default and label it — never a second way to authorise.
+    kind               = Column(String, default="group", nullable=False)
+    owner_id           = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     memberships = relationship("Membership", back_populates="workspace",
                                cascade="all, delete-orphan")
@@ -484,6 +490,50 @@ def user_workspaces(db, user: User) -> list[tuple[Workspace, str]]:
     return [(ws, role) for ws, role in rows]
 
 
+def personal_workspace(db, user: User) -> "Workspace | None":
+    return (db.query(Workspace)
+              .filter(Workspace.kind == "personal",
+                      Workspace.owner_id == user.id).first())
+
+
+def ensure_personal_workspace(db, user: User) -> "Workspace":
+    """
+    Every user gets one workspace of their own, created with the account.
+
+    The alternative — letting a project belong to no workspace — was rejected:
+    a project with no workspace has no access rule, so it would need a second
+    authorisation path keyed on an owner, running alongside `role_for()`. That
+    is the shape SPEC.md §3 forbids when it insists that null access is the
+    absence of a row and never `role='none'`: two ways of saying the same thing,
+    and one of them eventually escapes a check. The MCP, which goes through the
+    same dependency, would inherit the hole.
+
+    So a personal workspace is a plain Workspace with the owner as `admin`.
+    Nothing in the ACL changes. Sharing later is `ProjectWorkspace`, which
+    already exists: a project that starts as yours and becomes the group's is
+    the same object in two groups, not a move.
+
+    Idempotent — safe to call on every startup and on every account creation.
+    """
+    ws = personal_workspace(db, user)
+    if ws is not None:
+        return ws
+    base = slugify(user.name) or slugify(user.email.split("@")[0])
+    slug = base
+    n = 2
+    while db.query(Workspace).filter(Workspace.slug == slug).first():
+        slug = f"{base}-{n}"
+        n += 1
+    ws = Workspace(slug=slug, name=user.name, kind="personal",
+                   owner_id=user.id,
+                   description="Personal workspace — work that is not a group's.")
+    db.add(ws)
+    db.flush()
+    db.add(Membership(user_id=user.id, workspace_id=ws.id, role="admin",
+                      created_by=user.id))
+    return ws
+
+
 # ── derived state ─────────────────────────────────────────────────────────────
 
 def open_submission(project: Project) -> Submission | None:
@@ -649,6 +699,9 @@ _MIGRATIONS = [
     "ALTER TABLE api_keys ADD COLUMN last_used_at DATETIME",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",
+    "ALTER TABLE workspaces ADD COLUMN kind VARCHAR DEFAULT 'group'",
+    "ALTER TABLE workspaces ADD COLUMN owner_id INTEGER",
+    "UPDATE workspaces SET kind = 'group' WHERE kind IS NULL",
 ]
 
 

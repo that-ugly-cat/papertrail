@@ -37,7 +37,8 @@ from models import (
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, canonical, effective_status,
     get_db, has_role, role_for, workspaces_of,
-    get_or_create_person, init_db, is_dormant, known_people, known_venues,
+    ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
+    known_people, known_venues, personal_workspace,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
     utcnow,
 )
@@ -48,6 +49,15 @@ from mcp_app import mcp  # noqa: E402
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Accounts that predate personal workspaces get theirs here. Idempotent, so
+    # it costs one query per user per boot and never needs a one-off script.
+    db = SessionLocal()
+    try:
+        for u in db.query(User).all():
+            ensure_personal_workspace(db, u)
+        db.commit()
+    finally:
+        db.close()
     async with mcp.session_manager.run():
         yield
 
@@ -231,13 +241,16 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
     """
     Everything the caller is an author on, across every workspace they belong to.
 
-    Deliberately NOT a Workspace row. A project lives in exactly one workspace,
-    and a workspace is a group with members; a personal one holding other
-    groups' projects would put the same project in two access domains and quietly
-    undo §3. This is a view: the cards are gathered by authorship, filtered by
-    the memberships the caller already has, and each one stays governed by its
-    own workspace — the move endpoint is still /api/w/{its slug}/move, so a card
-    from a workspace where you only have `read` cannot be dragged.
+    Deliberately NOT a Workspace row, and this is not in tension with personal
+    workspaces — the two answer different questions. A personal workspace is a
+    *place*: it holds work that is nobody's group, governed by the same ACL as
+    any other workspace. This view is a *cut across places*: it gathers cards by
+    authorship from every workspace the caller belongs to, including their
+    personal one. Making it a workspace instead would put other groups' projects
+    into a second access domain and quietly undo §3, which is the thing to keep
+    avoiding. Each card stays governed by its own workspace — the move endpoint
+    is still /api/w/{its slug}/move, so a card from a workspace where you only
+    have `read` cannot be dragged.
     """
     dormant = 1 if str(dormant).strip() not in ("", "0") else 0
     scopes = user_workspaces(db, user)
@@ -247,7 +260,8 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
             request, "personal.html",
             {"user": user, "columns": {s: [] for s in STATUSES}, "total": 0,
              "q": q or "", "dormant": dormant, "scopes": [], "ws_filter": "",
-             "venues": [], "role_of": {}, "is_dormant": lambda p: False})
+             "venues": [], "role_of": {}, "is_dormant": lambda p: False,
+             "mine": personal_workspace(db, user), "writable": []})
 
     if ws_filter:
         projects = [p for p in projects
@@ -275,6 +289,7 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
          "q": q or "", "dormant": dormant, "ws_filter": ws_filter,
          "scopes": scopes, "venues": venues,
          "writable": [(w, r) for w, r in scopes if r in ("write", "admin")],
+         "mine": personal_workspace(db, user),
          "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in projects},
          "name_of": {p.id: allowed[p.workspace_id][0].name for p in projects},
          "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
@@ -303,7 +318,7 @@ def _my_projects(db: Session, user: User):
 
 
 @app.post("/me/projects")
-def create_from_personal(slug: str = Form(...), title: str = Form(...),
+def create_from_personal(slug: str = Form(""), title: str = Form(...),
                          status_: str = Form("idea", alias="status"),
                          user: User = Depends(get_current_user),
                          db: Session = Depends(get_db)):
@@ -319,7 +334,11 @@ def create_from_personal(slug: str = Form(...), title: str = Form(...),
     view is built from authorship: you would have to go find it in the workspace
     board to add yourself. Creating something in "My work" means it is yours.
     """
-    ws = db.query(Workspace).filter(Workspace.slug == slug).first()
+    # No workspace chosen means the obvious one: your own. That is the whole
+    # point of having it — a thought you want to write down should not first
+    # require deciding which research group it belongs to.
+    ws = (db.query(Workspace).filter(Workspace.slug == slug).first()
+          if slug.strip() else ensure_personal_workspace(db, user))
     role = role_for(db, user, ws) if ws else None
     if ws is None or role is None:
         raise HTTPException(status_code=404, detail="Not found")
@@ -1076,6 +1095,9 @@ def admin_create_user(email: str = Form(...), name: str = Form(...),
         p = get_or_create_person(db, u.name)
         if p and p.user_id is None:
             p.user_id = u.id
+        # A new account with no workspace can create nothing, and would land on
+        # an empty home with no way out. Its own workspace is the way out.
+        ensure_personal_workspace(db, u)
         db.commit()
     return RedirectResponse("/admin", status_code=302)
 

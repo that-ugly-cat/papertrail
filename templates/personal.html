@@ -81,7 +81,11 @@
     <p class="muted small">You will be added as lead author, so it appears here.</p>
     <label>Workspace
       <select name="slug">
-        {% for ws, role in writable %}<option value="{{ ws.slug }}">{{ ws.name }}</option>{% endfor %}
+        {% for ws, role in writable %}
+        <option value="{{ ws.slug }}" {% if mine and ws.id == mine.id %}selected{% endif %}>
+          {%- if ws.kind == 'personal' %}{{ ws.name }} — personal{% else %}{{ ws.name }}{% endif -%}
+        </option>
+        {% endfor %}
       </select>
     </label>
     <label>Title
