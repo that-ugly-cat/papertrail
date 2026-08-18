@@ -6,3 +6,5 @@ data/*.sqlite3
 *.swp
 .venv/
 SPEC.md
+migration/probe_report.json
+migration/probe_run.log
