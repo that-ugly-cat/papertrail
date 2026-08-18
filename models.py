@@ -145,7 +145,7 @@ LINK_KINDS = ["wiki", "file", "grant", "lssr", "doi", "preprint", "url",
 EVENT_TYPES = ["created", "status_change", "note_added", "submission_opened",
                "submission_outcome", "link_added", "authorship_changed",
                "field_changed", "imported", "member_added", "member_changed",
-               "member_removed"]
+               "member_removed", "deleted", "restored"]
 
 
 # ── users, workspaces, access ─────────────────────────────────────────────────
@@ -285,6 +285,11 @@ class Project(Base):
     # Position within its kanban column, so drag-and-drop ordering survives.
     position     = Column(Integer, default=0)
     imported     = Column(Boolean, default=False)
+    # Soft delete. A project carries years of notes, submissions and events, and
+    # a confirmation dialog in front of an irreversible DELETE is theatre: it
+    # asks you to be careful instead of making a mistake survivable. Deleted
+    # projects vanish from every view and can be brought back.
+    deleted_at   = Column(DateTime, nullable=True)
     # Notion page id, so the import can be re-run without duplicating anything.
     notion_id    = Column(String, nullable=True, unique=True, index=True)
     created_at   = Column(DateTime, default=utcnow)
@@ -636,6 +641,7 @@ _MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN notion_id VARCHAR",
     "ALTER TABLE notes ADD COLUMN external_id VARCHAR",
     "ALTER TABLE projects ADD COLUMN output_type VARCHAR DEFAULT 'paper'",
+    "ALTER TABLE projects ADD COLUMN deleted_at DATETIME",
     # Backfill the sharing table from the home workspace, once. `INSERT OR
     # IGNORE` plus the unique constraint makes re-running a no-op.
     "INSERT OR IGNORE INTO project_workspaces (project_id, workspace_id) "

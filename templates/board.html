@@ -141,6 +141,17 @@
 </dialog>
 {% endif %}
 
+{% if just_deleted %}
+<div class="toast" id="toast">
+  <span>Deleted <strong>{{ just_deleted_title }}</strong></span>
+  <form method="post" action="/w/{{ ws.slug }}/p/{{ just_deleted }}/restore" class="inline">
+    <button class="btn btn-ghost btn-sm" type="submit">Undo</button>
+  </form>
+  <button class="linkbtn" type="button"
+          onclick="document.getElementById('toast').remove()">×</button>
+</div>
+{% endif %}
+
 <dialog id="projdlg" class="modal modal-wide">
   <button type="button" class="modal-close" id="projdlg-close" aria-label="Close">×</button>
   <div id="projdlg-body"></div>

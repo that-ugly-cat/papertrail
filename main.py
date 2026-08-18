@@ -14,6 +14,7 @@ that has just gone out has nowhere to sit; the analytics on top of it are Fase 3
 import contextlib
 import json
 import os
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
@@ -151,14 +152,19 @@ def _append_milestone(existing: str | None, outcome: str) -> str:
     return "\n".join(filter(None, [existing, line]))
 
 
-def _projects_in(db: Session, ws: Workspace):
-    """Projects of a workspace: the ones that live here plus the ones shared in."""
-    return (db.query(Project)
-              .outerjoin(ProjectWorkspace,
-                         ProjectWorkspace.project_id == Project.id)
-              .filter((Project.workspace_id == ws.id)
-                      | (ProjectWorkspace.workspace_id == ws.id))
-              .distinct())
+def _projects_in(db: Session, ws: Workspace, deleted: bool = False):
+    """Projects of a workspace: the ones that live here plus the ones shared in.
+
+    Deleted ones are excluded everywhere by default — one filter, applied at the
+    single place every view goes through, so nothing can forget it."""
+    q = (db.query(Project)
+           .outerjoin(ProjectWorkspace,
+                      ProjectWorkspace.project_id == Project.id)
+           .filter((Project.workspace_id == ws.id)
+                   | (ProjectWorkspace.workspace_id == ws.id)))
+    q = q.filter(Project.deleted_at.isnot(None) if deleted
+                 else Project.deleted_at.is_(None))
+    return q.distinct()
 
 
 def _project_or_404(acc: WorkspaceAccess, pid: int) -> Project:
@@ -291,7 +297,8 @@ def _my_projects(db: Session, user: User):
     if me is None:
         return [], allowed
     return ([a.project for a in me.authorships
-             if a.project and a.project.workspace_id in allowed], allowed)
+             if a.project and a.project.deleted_at is None
+             and a.project.workspace_id in allowed], allowed)
 
 
 @app.post("/me/projects")
@@ -363,6 +370,7 @@ def personal_done(request: Request, user: User = Depends(get_current_user),
 @app.get("/w/{slug}", response_class=HTMLResponse)
 def board(request: Request, slug: str, person: int | None = None,
           q: str | None = None, dormant: int = 0, mismatch: int = 0,
+          deleted: int = 0, title: str = "",
           acc: WorkspaceAccess = Depends(workspace_dep("read"))):
     db, ws = acc.db, acc.workspace
     projects = (_projects_in(db, ws)
@@ -401,6 +409,7 @@ def board(request: Request, slug: str, person: int | None = None,
          "can_write": acc.can_write, "can_admin": acc.can_admin,
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant, "mismatch": mismatch,
+         "just_deleted": deleted, "just_deleted_title": title,
          "n_mismatch": sum(1 for p in (_projects_in(db, ws).all())
                            if effective_status(p)["diverges"]),
          "dormant_days": ws.dormant_after_days, "venues": venues,
@@ -685,6 +694,36 @@ async def set_project_workspaces(slug: str, pid: int, request: Request,
                                                      "to": after}}))
     db.commit()
     return RedirectResponse(f"/w/{p.workspace.slug}/p/{p.id}", status_code=302)
+
+
+@app.post("/w/{slug}/p/{pid}/delete")
+def delete_project(slug: str, pid: int,
+                   acc: WorkspaceAccess = Depends(workspace_dep("write"))):
+    """Hide a project. Reversible: see restore below."""
+    db = acc.db
+    p = _project_or_404(acc, pid)
+    if not has_role(project_access(acc, p), "write"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    p.deleted_at = utcnow()
+    log_event(db, p, acc.user, "deleted")
+    db.commit()
+    return RedirectResponse(
+        f"/w/{slug}?deleted={p.id}&title={urllib.parse.quote(p.title[:60])}",
+        status_code=302)
+
+
+@app.post("/w/{slug}/p/{pid}/restore")
+def restore_project(slug: str, pid: int,
+                    acc: WorkspaceAccess = Depends(workspace_dep("write"))):
+    db = acc.db
+    p = (_projects_in(db, acc.workspace, deleted=True)
+         .filter(Project.id == pid).first())
+    if p is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    p.deleted_at = None
+    log_event(db, p, acc.user, "restored")
+    db.commit()
+    return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 
 
 @app.post("/w/{slug}/p/{pid}/notes")

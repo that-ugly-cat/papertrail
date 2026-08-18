@@ -363,3 +363,21 @@ tr.revoked { opacity: .5; }
 .tweak summary::before { content: "▸ "; }
 .tweak[open] summary::before { content: "▾ "; }
 .tweak summary:hover { color: var(--text); }
+
+/* ── delete: confirmation and toast ── */
+.btn-danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
+.btn-danger:hover { background: #3a1a1a; border-color: var(--danger); }
+.danger-zone summary { color: var(--danger); }
+.loss { margin: 6px 0 10px; padding-left: 20px; font-size: 13px; }
+.loss li { padding: 1px 0; }
+.loss strong { color: var(--text); }
+
+.toast {
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
+  z-index: 40; display: flex; align-items: center; gap: 12px;
+  background: var(--card); border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius); padding: 10px 14px; font-size: 14px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+}
+.toast form { margin: 0; }
