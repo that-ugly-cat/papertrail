@@ -11,6 +11,7 @@
   <div class="board-actions">
     <span class="pill pill-{{ role }}">{{ role }}</span>
     <a class="btn btn-ghost" href="/w/{{ ws.slug }}/done">Hall of done</a>
+    {% if n_trash %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/trash">Trash ({{ n_trash }})</a>{% endif %}
     {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Members</a>{% endif %}
     {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">New project</button>{% endif %}
   </div>
@@ -147,6 +148,7 @@
   <form method="post" action="/w/{{ ws.slug }}/p/{{ just_deleted }}/restore" class="inline">
     <button class="btn btn-ghost btn-sm" type="submit">Undo</button>
   </form>
+  <a class="small muted" href="/w/{{ ws.slug }}/trash">Trash</a>
   <button class="linkbtn" type="button"
           onclick="document.getElementById('toast').remove()">×</button>
 </div>

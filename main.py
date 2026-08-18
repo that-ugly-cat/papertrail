@@ -410,6 +410,7 @@ def board(request: Request, slug: str, person: int | None = None,
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant, "mismatch": mismatch,
          "just_deleted": deleted, "just_deleted_title": title,
+         "n_trash": _projects_in(db, ws, deleted=True).count(),
          "n_mismatch": sum(1 for p in (_projects_in(db, ws).all())
                            if effective_status(p)["diverges"]),
          "dormant_days": ws.dormant_after_days, "venues": venues,
@@ -694,6 +695,54 @@ async def set_project_workspaces(slug: str, pid: int, request: Request,
                                                      "to": after}}))
     db.commit()
     return RedirectResponse(f"/w/{p.workspace.slug}/p/{p.id}", status_code=302)
+
+
+@app.get("/w/{slug}/trash", response_class=HTMLResponse)
+def trash(request: Request, slug: str,
+          acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """
+    What has been deleted, and by whom.
+
+    A trash nobody can open is just a hidden pile: the undo in the toast lasts
+    one page load, and after that a deleted project would be unreachable without
+    the database. This is where it stays reachable.
+    """
+    db = acc.db
+    rows = (_projects_in(db, acc.workspace, deleted=True)
+            .order_by(Project.deleted_at.desc()).all())
+    who = {}
+    for p in rows:
+        ev = [e for e in p.events if e.type == "deleted"]
+        last = max(ev, key=lambda e: e.ts) if ev else None
+        who[p.id] = (last.user.name if last and last.user else None,
+                     last.ts if last else p.deleted_at)
+    return templates.TemplateResponse(
+        request, "trash.html",
+        {"user": acc.user, "ws": acc.workspace, "role": acc.role,
+         "can_write": acc.can_write, "can_admin": acc.can_admin,
+         "rows": rows, "who": who},
+    )
+
+
+@app.post("/w/{slug}/p/{pid}/purge")
+def purge_project(slug: str, pid: int,
+                  acc: WorkspaceAccess = Depends(workspace_dep("admin"))):
+    """
+    Destroy a deleted project for good.
+
+    Admin only, and only from the trash: this is the single irreversible action
+    in the whole tool, so it sits with whoever administers the group rather than
+    with anyone who can write. Everything cascades — notes, submissions, events,
+    links, authorships.
+    """
+    db = acc.db
+    p = (_projects_in(db, acc.workspace, deleted=True)
+         .filter(Project.id == pid).first())
+    if p is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    db.delete(p)
+    db.commit()
+    return RedirectResponse(f"/w/{slug}/trash", status_code=302)
 
 
 @app.post("/w/{slug}/p/{pid}/delete")

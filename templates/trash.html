@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Trash · {{ ws.name }} — PaperTrail{% endblock %}
+{% block body %}
+
+<p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
+
+<div class="page-head">
+  <div>
+    <h1>Trash</h1>
+    <p class="muted small">
+      {{ rows|length }} deleted project{{ '' if rows|length == 1 else 's' }}.
+      Nothing here is gone: it is hidden from every board and can be put back.
+    </p>
+  </div>
+</div>
+
+{% if not rows %}
+<div class="card"><p class="muted">The trash is empty.</p></div>
+{% endif %}
+
+{% for p in rows %}
+<div class="card trash-row">
+  <div class="trash-main">
+    <h2>{{ p.final_title or p.title }}</h2>
+    <p class="muted small">
+      was in <strong>{{ STATUS_LABELS[p.status] }}</strong> ·
+      deleted {{ who[p.id][1].strftime('%d/%m/%Y') if who[p.id][1] else '—' }}
+      {%- if who[p.id][0] %} by {{ who[p.id][0] }}{% endif %}
+    </p>
+    <p class="small muted">
+      {{ p.notes|length }} note{{ '' if p.notes|length == 1 else 's' }} ·
+      {{ p.submissions|length }} attempt{{ '' if p.submissions|length == 1 else 's' }} ·
+      {{ p.events|length }} event{{ '' if p.events|length == 1 else 's' }} ·
+      {{ p.authorships|length }} author{{ '' if p.authorships|length == 1 else 's' }}
+      {%- for a in p.authorships %}{% if loop.first %} ({% endif %}{{ a.person.name }}{% if not loop.last %}, {% else %}){% endif %}{% endfor %}
+    </p>
+  </div>
+  <div class="trash-actions">
+    {% if can_write %}
+    <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/restore" class="inline">
+      <button class="btn btn-primary btn-sm" type="submit">Restore</button>
+    </form>
+    {% endif %}
+    {% if can_admin %}
+    <button class="btn btn-danger btn-sm" type="button"
+            onclick="document.getElementById('purge-{{ p.id }}').showModal()">Delete for good</button>
+    <dialog id="purge-{{ p.id }}" class="modal">
+      <h2>Destroy “{{ (p.final_title or p.title)[:56] }}”?</h2>
+      <p class="small">This one does not come back. It removes
+        {{ p.notes|length }} note{{ '' if p.notes|length == 1 else 's' }},
+        {{ p.submissions|length }} attempt{{ '' if p.submissions|length == 1 else 's' }} and
+        {{ p.events|length }} event{{ '' if p.events|length == 1 else 's' }} of history,
+        permanently.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost"
+                onclick="document.getElementById('purge-{{ p.id }}').close()">Cancel</button>
+        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/purge" class="inline">
+          <button type="submit" class="btn btn-danger">Destroy</button>
+        </form>
+      </div>
+    </dialog>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% if rows and not can_admin %}
+<p class="muted small">Only a workspace admin can empty the trash for good.</p>
+{% endif %}
+
+{% endblock %}

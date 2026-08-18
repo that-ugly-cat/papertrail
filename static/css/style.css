@@ -381,3 +381,9 @@ tr.revoked { opacity: .5; }
   box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
 }
 .toast form { margin: 0; }
+
+/* ── trash ── */
+.trash-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.trash-main h2 { margin: 0 0 4px; font-size: 15px; }
+.trash-main p { margin: 2px 0; }
+.trash-actions { display: flex; gap: 8px; flex-shrink: 0; }
