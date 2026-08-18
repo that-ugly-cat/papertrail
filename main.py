@@ -1,11 +1,17 @@
 """
 PaperTrail — research project tracking, idea to published paper.
 
+Surfaces: the web app (session cookie), and **/mcp** for the model, gated by a
+per-user X-API-Key — with the /mcp/k/{key} capability-URL variant for clients
+that cannot send custom headers. The MCP key carries an identity, so the model
+reaches exactly what its owner reaches, no more (see mcp_app.py).
+
 Fase 1: auth, workspaces, membership, admin, project CRUD, event log, kanban
 board with drag-and-drop and author filter. The submission cycle is wired in its
 minimal form (open a submission, record an outcome) because without it a paper
 that has just gone out has nowhere to sit; the analytics on top of it are Fase 3.
 """
+import contextlib
 import json
 import os
 from datetime import datetime
@@ -18,19 +24,30 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from auth import (
-    WorkspaceAccess, create_token, get_current_user, hash_password,
-    require_admin, touch_login, verify_password, workspace_dep,
+    WorkspaceAccess, check_api_key, create_token, get_current_user,
+    hash_password, require_admin, set_caller, touch_login, verify_password,
+    workspace_dep,
 )
 from models import (
-    AUTHOR_ROLES, LINK_KINDS, OUTCOME_LABELS, ROLES, STATUSES, STATUS_LABELS,
+    AUTHOR_ROLES, ApiKey, LINK_KINDS, OUTCOME_LABELS, ROLES, STATUSES, STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
-    Submission, User, Workspace, effective_status, get_db,
+    SessionLocal, Submission, User, Workspace, effective_status, get_db,
     get_or_create_person, init_db, is_dormant, last_event_at, log_event,
     open_submission, slugify, user_workspaces, utcnow,
 )
 
+from mcp_app import mcp  # noqa: E402
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    async with mcp.session_manager.run():
+        yield
+
+
 BASE = Path(__file__).parent
-app = FastAPI(title="PaperTrail")
+app = FastAPI(title="PaperTrail", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
 
@@ -49,7 +66,57 @@ templates.env.globals.update(
     effective_status=effective_status, open_submission=open_submission,
 )
 
-init_db()
+# The MCP transport checks Host headers against DNS rebinding, so the public
+# domain has to be allowed or every Caddy-proxied request is refused.
+def _allowed_hosts() -> list[str]:
+    from urllib.parse import urlparse
+    hosts = ["localhost:8017", "127.0.0.1:8017", "localhost", "127.0.0.1"]
+    public = urlparse(os.environ.get("PUBLIC_URL", "")).netloc
+    if public:
+        hosts.append(public)
+    return hosts
+
+
+from mcp.server.transport_security import TransportSecuritySettings  # noqa: E402
+
+app.mount("/mcp", mcp.streamable_http_app(
+    streamable_http_path="/", json_response=True, stateless_http=True,
+    transport_security=TransportSecuritySettings(
+        allowed_hosts=_allowed_hosts(),
+        allowed_origins=[os.environ.get("PUBLIC_URL", "http://localhost:8017")])))
+
+
+@app.middleware("http")
+async def api_key_gate(request: Request, call_next):
+    """
+    Resolve the MCP caller, or refuse.
+
+    Two ways in, one table. The header is the normal path; /mcp/k/{key} carries
+    the same key as a path segment for clients that cannot set headers, and is
+    stripped before the mounted app sees it, so the MCP layer stays unaware of
+    how the caller authenticated.
+    """
+    path = request.url.path
+    if not path.startswith("/mcp"):
+        return await call_next(request)
+
+    if path.startswith("/mcp/k/"):
+        key, _, rest = path[len("/mcp/k/"):].partition("/")
+        request.scope["path"] = "/mcp/" + rest
+        request.scope["raw_path"] = request.scope["path"].encode()
+    else:
+        key = request.headers.get("X-API-Key", "")
+
+    db = SessionLocal()
+    try:
+        row = check_api_key(db, key)
+        set_caller(row.user if row else None)
+    finally:
+        db.close()
+    if not row:
+        return JSONResponse({"error": "missing or invalid API key"},
+                            status_code=401)
+    return await call_next(request)
 
 
 @app.exception_handler(HTTPException)
@@ -620,10 +687,37 @@ def admin_create_workspace(name: str = Form(...), slug: str = Form(""),
 
 
 @app.get("/profile", response_class=HTMLResponse)
-def profile(request: Request, user: User = Depends(get_current_user)):
+def profile(request: Request, user: User = Depends(get_current_user),
+            db: Session = Depends(get_db)):
+    keys = (db.query(ApiKey)
+              .filter(ApiKey.user_id == user.id)
+              .order_by(ApiKey.created_at.desc()).all())
     return templates.TemplateResponse(
         request, "profile.html",
-                                      {"user": user})
+        {"user": user, "keys": keys,
+         "public_url": os.environ.get("PUBLIC_URL", "http://localhost:8017")})
+
+
+@app.post("/profile/keys")
+def create_key(name: str = Form(...), user: User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    """Mint an MCP key for yourself. Keys belong to people, never to the
+    deployment: a key reaches exactly the workspaces its owner is a member of,
+    and revoking the person's membership revokes the key's reach with it."""
+    db.add(ApiKey(user_id=user.id, name=name.strip() or "mcp"))
+    db.commit()
+    return RedirectResponse("/profile", status_code=302)
+
+
+@app.post("/profile/keys/{key_id}/revoke")
+def revoke_key(key_id: int, user: User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    row = (db.query(ApiKey)
+             .filter(ApiKey.id == key_id, ApiKey.user_id == user.id).first())
+    if row:
+        row.active = False
+        db.commit()
+    return RedirectResponse("/profile", status_code=302)
 
 
 @app.post("/profile/password")

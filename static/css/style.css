@@ -288,3 +288,11 @@ dl.ro dd { margin: 0; }
   margin-top: auto; padding-top: 6px; word-break: break-all;
 }
 .done-doi:hover { color: var(--accent-light); }
+
+/* ── api keys ── */
+code.key {
+  display: inline-block; font-size: 12px; word-break: break-all;
+  background: var(--bg); border: 1px solid var(--border);
+  padding: 3px 8px; border-radius: 6px;
+}
+tr.revoked { opacity: .5; }

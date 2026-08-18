@@ -7,3 +7,4 @@ sqlalchemy
 bcrypt
 python-jose[cryptography]
 markdown
+mcp>=2.0,<3

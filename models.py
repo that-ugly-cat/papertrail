@@ -130,6 +130,29 @@ class Workspace(Base):
                                cascade="all, delete-orphan")
 
 
+class ApiKey(Base):
+    """
+    An MCP credential, and deliberately a credential *of a person*.
+
+    In Contrarian a key carries publisher entitlements; here it carries an
+    identity. Every MCP call resolves to `user` and then goes through the same
+    role_for() the web app uses, so a key can never reach a workspace its owner
+    is not a member of. Without the user binding the MCP surface would be a hole
+    straight through the access model described in SPEC.md §3.
+    """
+    __tablename__ = "api_keys"
+    id           = Column(Integer, primary_key=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name         = Column(String, nullable=False)
+    key          = Column(String, unique=True, nullable=False,
+                          default=lambda: "ptr_" + secrets.token_urlsafe(32))
+    active       = Column(Boolean, default=True)
+    created_at   = Column(DateTime, default=utcnow)
+    last_used_at = Column(DateTime, nullable=True)
+
+    user = relationship("User")
+
+
 class Membership(Base):
     __tablename__ = "memberships"
     __table_args__ = (UniqueConstraint("user_id", "workspace_id"),)
@@ -441,6 +464,7 @@ _MIGRATIONS = [
     "ALTER TABLE notes ADD COLUMN author_label VARCHAR",
     "ALTER TABLE projects ADD COLUMN notion_id VARCHAR",
     "ALTER TABLE notes ADD COLUMN external_id VARCHAR",
+    "ALTER TABLE api_keys ADD COLUMN last_used_at DATETIME",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",
 ]

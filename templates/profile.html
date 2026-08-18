@@ -12,6 +12,52 @@
   </dl>
 </div>
 <div class="card">
+  <h2>MCP keys</h2>
+  <p class="small muted">
+    A key lets a model read and write PaperTrail from inside a conversation.
+    It carries <strong>your</strong> identity: it reaches the workspaces you are
+    a member of and nothing else, with your role in each. Revoke it and the
+    reach goes with it.
+  </p>
+  <table class="table">
+    <thead><tr><th>Name</th><th>Key</th><th>Last used</th><th></th></tr></thead>
+    <tbody>
+      {% for k in keys %}
+      <tr class="{{ '' if k.active else 'revoked' }}">
+        <td>{{ k.name }}</td>
+        <td><code class="key">{{ k.key if k.active else '— revoked —' }}</code></td>
+        <td class="muted small">{{ k.last_used_at.strftime('%d/%m/%Y') if k.last_used_at else 'never' }}</td>
+        <td class="ta-right">
+          {% if k.active %}
+          <form method="post" action="/profile/keys/{{ k.id }}/revoke" class="inline">
+            <button class="btn btn-ghost btn-sm" type="submit">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted small">No keys yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <form method="post" action="/profile/keys" class="inline-form">
+    <input name="name" placeholder="What is it for (e.g. Claude Code)" required>
+    <button class="btn btn-primary" type="submit">New key</button>
+  </form>
+
+  {% if keys and keys[0].active %}
+  <h3 class="small">How to connect</h3>
+  <p class="small muted">Endpoint <code>{{ public_url }}/mcp</code>, header
+    <code>X-API-Key</code>. For clients that cannot send custom headers, the
+    same key travels in the path:</p>
+  <p><code class="key">{{ public_url }}/mcp/k/{{ keys[0].key }}</code></p>
+  <p class="small muted">That URL <em>is</em> the credential, so treat it like
+    one: it can end up in access logs, so use a dedicated key per client and
+    revoke it on its own.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Change password</h2>
   <form method="post" action="/profile/password">
     <label>Current password

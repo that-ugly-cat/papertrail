@@ -11,6 +11,7 @@ templates: templates receive the already-resolved `role` and only decide what to
 draw with it (SPEC.md §3).
 """
 import os
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 
 import bcrypt
@@ -18,7 +19,9 @@ from fastapi import Cookie, Depends, HTTPException, status
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
-from models import User, Workspace, has_role, role_for, get_db, utcnow
+from models import (
+    ApiKey, User, Workspace, has_role, role_for, get_db, utcnow,
+)
 
 SECRET_KEY  = os.environ["JWT_SECRET"]
 ALGORITHM   = "HS256"
@@ -137,3 +140,58 @@ def workspace_dep(minimum: str = "read"):
 def touch_login(db: Session, user: User) -> None:
     user.last_login = utcnow()
     db.commit()
+
+
+# ── MCP surface ───────────────────────────────────────────────────────────────
+
+# The MCP tools are plain sync functions with no access to the request, so the
+# caller resolved by the middleware is handed over in a contextvar. One per
+# request, and `stateless_http` means one request per call.
+_caller: ContextVar["User | None"] = ContextVar("mcp_caller", default=None)
+
+
+def check_api_key(db: Session, key: str) -> "ApiKey | None":
+    """The active ApiKey row for this key, or None. Stamps last_used_at so a
+    key that is still in use somewhere is visible in /admin."""
+    from models import ApiKey
+    if not key:
+        return None
+    row = (db.query(ApiKey)
+             .filter(ApiKey.key == key, ApiKey.active == True)      # noqa: E712
+             .first())
+    if row is None or not row.user or not row.user.is_active:
+        return None
+    row.last_used_at = utcnow()
+    db.commit()
+    return row
+
+
+def set_caller(user: "User | None") -> None:
+    _caller.set(user)
+
+
+def current_caller() -> "User":
+    user = _caller.get()
+    if user is None:
+        raise PermissionError("No authenticated caller")
+    return user
+
+
+def mcp_workspace(db: Session, slug: str, minimum: str = "read"):
+    """
+    Resolve a workspace for an MCP call under the caller's own permissions.
+
+    Same rule as the web app: no membership is indistinguishable from no
+    workspace. The model gets told "not found", never "exists but forbidden".
+    """
+    user = current_caller()
+    ws = db.query(Workspace).filter(Workspace.slug == slug).first()
+    if ws is None:
+        raise LookupError(f"No workspace '{slug}'")
+    role = role_for(db, user, ws)
+    if role is None:
+        raise LookupError(f"No workspace '{slug}'")
+    if not has_role(role, minimum):
+        raise PermissionError(
+            f"'{slug}' requires {minimum} access, you have {role}")
+    return ws, role
