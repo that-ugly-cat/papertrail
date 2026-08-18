@@ -53,6 +53,7 @@
      given up on. Offering all seven outcomes everywhere invites the wrong one. */
   function outcomesFor(toStatus, fromStatus) {
     if (!SETS) return [];
+    if (toStatus === 'in_revision') return SETS.revision;
     if (toStatus === 'published') return SETS.published;
     if (toStatus === 'archived') return SETS.archived;
     return SETS.order.indexOf(toStatus) < SETS.order.indexOf(fromStatus)
@@ -65,7 +66,8 @@
     const goingIn = direction === 'in';
     dlg.querySelector('#submitdlg-title').textContent =
       goingIn ? 'Sent out for review'
-              : (toStatus === 'published' ? 'Accepted'
+              : (toStatus === 'in_revision' ? 'Reviews came back'
+                 : toStatus === 'published' ? 'Accepted'
                  : toStatus === 'archived' ? 'Giving up on it'
                  : 'Back from review');
     dlg.querySelector('#submitdlg-sub').textContent = title;
@@ -180,8 +182,9 @@
       }
 
       let extra = {};
+      const REVIEW = ['submitted', 'in_revision'];
       if (status !== fromStatus &&
-          (status === 'submitted' || fromStatus === 'submitted')) {
+          (REVIEW.includes(status) || REVIEW.includes(fromStatus))) {
         extra = await askAboutSubmission(
           status === 'submitted' ? 'in' : 'out',
           card.querySelector('.pcard-title').textContent.trim(),

@@ -166,6 +166,7 @@ textarea { resize: vertical; }
 .dot-writing { background: #ed8936; }
 .dot-ready { background: #ecc94b; }
 .dot-submitted { background: #38b2ac; }
+.dot-in_revision { background: #d69e2e; }
 .dot-published { background: var(--ok); }
 .dot-archived { background: #4a5568; }
 

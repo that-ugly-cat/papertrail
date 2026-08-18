@@ -43,7 +43,7 @@ def utcnow() -> datetime:
 # Declared statuses. `dormant` is NOT here: it is computed from the event log
 # (SPEC.md §5). Order matters — it drives the kanban column order.
 STATUSES = ["idea", "developed", "active", "writing", "ready", "submitted",
-            "published", "archived"]
+            "in_revision", "published", "archived"]
 
 STATUS_LABELS = {
     "idea":      "Idea",
@@ -52,6 +52,7 @@ STATUS_LABELS = {
     "writing":   "Writing up",
     "ready":     "Ready",
     "submitted": "Submitted",
+    "in_revision": "In revision",
     "published": "Published",
     "archived":  "Archived",
 }
@@ -68,7 +69,7 @@ AUTHOR_ROLES = ["lead", "co-author", "PI", "supervisor"]
 
 SUBMISSION_OUTCOMES = ["pending", "desk_reject", "major_revision",
                        "minor_revision", "reject_after_review", "accept",
-                       "withdrawn"]
+                       "withdrawn", "transferred"]
 
 OUTCOME_LABELS = {
     "pending":             "in review",
@@ -78,16 +79,23 @@ OUTCOME_LABELS = {
     "reject_after_review": "reject after review",
     "accept":              "accepted",
     "withdrawn":           "withdrawn",
+    # Real and frequent in this corpus: 7 notes across 4 projects. A cascade
+    # transfer (BMJ, Nature portfolio, SSM) ends the attempt at one venue and
+    # starts one at a sister journal without a rejection in between. Recording
+    # it as "rejected" would libel the editor and distort the venue statistics.
+    "transferred":         "transferred to another journal",
 }
 
 # Leaving `submitted` leftwards and rightwards are different events, so they are
 # asked different questions. Going left the paper came back to you; going right
 # it moved on. Offering the full list in both directions invites the wrong
 # answer — "accepted" has no business being on the way back to Writing up.
-OUTCOMES_BACK = ["major_revision", "minor_revision", "reject_after_review",
-                 "desk_reject", "withdrawn"]
+OUTCOMES_BACK = ["reject_after_review", "desk_reject", "transferred",
+                 "withdrawn"]
+OUTCOMES_REVISION = ["major_revision", "minor_revision"]
 OUTCOMES_PUBLISHED = ["accept"]
-OUTCOMES_ARCHIVED = ["withdrawn", "reject_after_review", "desk_reject"]
+OUTCOMES_ARCHIVED = ["withdrawn", "reject_after_review", "desk_reject",
+                     "transferred"]
 
 # A revision request does NOT end the attempt: the manuscript is still at that
 # venue, the clock is still running, and the next step is a resubmission to the
@@ -98,6 +106,8 @@ KEEPS_ATTEMPT_OPEN = {"major_revision", "minor_revision"}
 
 def outcomes_for(from_status: str, to_status: str) -> list[str]:
     """Which outcomes make sense for this particular move out of `submitted`."""
+    if to_status == "in_revision":
+        return OUTCOMES_REVISION
     if to_status == "published":
         return OUTCOMES_PUBLISHED
     if to_status == "archived":

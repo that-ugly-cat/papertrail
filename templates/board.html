@@ -113,6 +113,7 @@
        from these three lists rather than rendered once. #}
     <script type="application/json" id="outcome-sets">
       {{ {"back": OUTCOMES_BACK,
+          "revision": OUTCOMES_REVISION,
           "published": OUTCOMES_PUBLISHED,
           "archived": OUTCOMES_ARCHIVED,
           "labels": OUTCOME_LABELS,
@@ -140,6 +141,6 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/kanban.js?v=4"></script>
+<script src="/static/js/kanban.js?v=5"></script>
 <script src="/static/js/projectmodal.js?v=1"></script>
 {% endblock %}

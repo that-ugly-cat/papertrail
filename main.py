@@ -30,7 +30,8 @@ from auth import (
 )
 from models import (
     AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS,
-    OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, ROLES, STATUSES,
+    OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, OUTCOMES_REVISION,
+    ROLES, STATUSES,
     STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, effective_status, get_db,
@@ -67,7 +68,8 @@ templates.env.globals.update(
     AUTHOR_ROLES=AUTHOR_ROLES, LINK_KINDS=LINK_KINDS,
     SUBMISSION_OUTCOMES=SUBMISSION_OUTCOMES, OUTCOME_LABELS=OUTCOME_LABELS,
     OUTCOMES_BACK=OUTCOMES_BACK, OUTCOMES_PUBLISHED=OUTCOMES_PUBLISHED,
-    OUTCOMES_ARCHIVED=OUTCOMES_ARCHIVED, KEEPS_ATTEMPT_OPEN=KEEPS_ATTEMPT_OPEN,
+    OUTCOMES_ARCHIVED=OUTCOMES_ARCHIVED, OUTCOMES_REVISION=OUTCOMES_REVISION,
+    KEEPS_ATTEMPT_OPEN=KEEPS_ATTEMPT_OPEN,
     effective_status=effective_status, open_submission=open_submission,
 )
 
@@ -328,7 +330,21 @@ async def move_project(slug: str, request: Request,
                 log_event(db, p, acc.user, "submission_opened",
                           payload=json.dumps({"venue": venue,
                                               "attempt": s.attempt}))
-        elif old_status == "submitted":
+        elif new_status == "in_revision":
+            # The reviews came back and the paper is with the authors. The
+            # attempt stays open — same venue, same clock — and the round is
+            # recorded on it.
+            s = open_submission(p)
+            outcome = body.get("outcome") or "major_revision"
+            if s and outcome in KEEPS_ATTEMPT_OPEN:
+                s.notes = _append_milestone(s.notes, outcome)
+                log_event(db, p, acc.user, "submission_outcome",
+                          payload=json.dumps({"venue": s.venue,
+                                              "outcome": outcome,
+                                              "attempt": s.attempt,
+                                              "closed": False}))
+
+        elif old_status in ("submitted", "in_revision"):
             outcome = body.get("outcome")
             s = open_submission(p)
             if s and outcome in SUBMISSION_OUTCOMES and outcome != "pending":
