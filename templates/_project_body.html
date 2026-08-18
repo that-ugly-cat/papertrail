@@ -321,9 +321,12 @@
     <div class="card">
       <h2>Links</h2>
       <ul class="plain">
-        {% for l in p.links %}
+        {# `links` is filtered by visible_links(); never iterate p.links here,
+           or someone else's private rows come straight back. #}
+        {% for l in links %}
         <li>
           <span><span class="badge">{{ l.kind }}</span>
+            {% if l.user_id %}<span class="badge badge-private" title="Only you can see this link">only you</span>{% endif %}
             {% if l.kind in ('url', 'doi', 'repo', 'lssr', 'grant') %}
             <a href="{{ l.target }}" target="_blank" rel="noopener">{{ l.label or l.target }}</a>
             {% else %}{{ l.label or l.target }}{% endif %}
@@ -346,6 +349,10 @@
         <input name="target" placeholder="target" required>
         <input name="label" placeholder="label">
         <button class="btn btn-ghost" type="submit">+</button>
+        <label class="check link-private">
+          <input type="checkbox" name="private" value="1">
+          Only me — the target is somewhere only I can reach
+        </label>
       </form>
       {% endif %}
     </div>

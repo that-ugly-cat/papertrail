@@ -40,7 +40,7 @@ from models import (
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
-    utcnow,
+    utcnow, visible_links,
 )
 
 from mcp_app import mcp  # noqa: E402
@@ -598,6 +598,7 @@ def project_page(request: Request, slug: str, pid: int, partial: int = 0,
         {"user": acc.user, "ws": acc.workspace,
          "role": role, "can_write": has_role(role, "write"), "p": p,
          "project_ws": workspaces_of(p),
+         "links": visible_links(p, acc.user),
          "ws_options": [(w, r) for w, r in user_workspaces(acc.db, acc.user)
                         if r in ("write", "admin") or w.id in mine],
          "events": events, "notes": notes, "subs": subs,
@@ -854,15 +855,21 @@ def remove_author(slug: str, pid: int, aid: int,
 
 @app.post("/w/{slug}/p/{pid}/links")
 def add_link(slug: str, pid: int, kind: str = Form(...), target: str = Form(...),
-             label: str = Form(""),
+             label: str = Form(""), private: str = Form(""),
              acc: WorkspaceAccess = Depends(workspace_dep("write"))):
     db = acc.db
     p = _project_or_404(acc, pid)
     if kind in LINK_KINDS and target.strip():
+        mine = bool(private)
         db.add(Link(project_id=p.id, kind=kind, target=target.strip(),
-                    label=label.strip() or None))
+                    label=label.strip() or None,
+                    user_id=acc.user.id if mine else None))
+        # The target of a private link is the thing being kept private, so it
+        # must not be copied into the event payload, which everyone can read.
         log_event(db, p, acc.user, "link_added",
-                  payload=json.dumps({"kind": kind, "target": target.strip()}))
+                  payload=json.dumps({"kind": kind, "private": True} if mine
+                                     else {"kind": kind,
+                                           "target": target.strip()}))
         db.commit()
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 
@@ -873,6 +880,11 @@ def remove_link(slug: str, pid: int, lid: int,
     db = acc.db
     p = _project_or_404(acc, pid)
     link = db.query(Link).filter(Link.id == lid, Link.project_id == p.id).first()
+    # Someone else's private link is not visible, so it is not removable either
+    # — and 404 rather than 403, for the same reason as §3: refusing loudly
+    # would confirm that something is there.
+    if link and link.user_id is not None and link.user_id != acc.user.id:
+        raise HTTPException(status_code=404, detail="Not found")
     if link:
         db.delete(link)
         db.commit()

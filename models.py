@@ -411,6 +411,20 @@ class Note(Base):
 
 
 class Link(Base):
+    """
+    A pointer from a project to something else.
+
+    `user_id` is the difference between "the project's link" and "my link".
+    NULL means it belongs to the project and everyone who can see the project
+    sees it — a DOI, a repo, a preprint. Set means it belongs to one person and
+    only they see it: a path into a private wiki, an Obsidian vault, a Zotero
+    collection. Those exist because the useful pointer is often into somewhere
+    nobody else can reach, and a link nobody else can follow is not shared
+    information, it is a leaked filename.
+
+    This is not a second way to authorise. The workspace still decides who sees
+    the project; this only decides which of its rows they are shown inside it.
+    """
     __tablename__ = "links"
     id         = Column(Integer, primary_key=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
@@ -418,6 +432,8 @@ class Link(Base):
     target     = Column(String, nullable=False)
     label      = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
+    # NULL = the project's, shared. Set = personal, visible only to that user.
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     project = relationship("Project", back_populates="links")
 
@@ -488,6 +504,20 @@ def user_workspaces(db, user: User) -> list[tuple[Workspace, str]]:
               .order_by(Workspace.archived, Workspace.name)
               .all())
     return [(ws, role) for ws, role in rows]
+
+
+def visible_links(project: "Project", user: User) -> list["Link"]:
+    """
+    The links this user may see on this project: the shared ones, plus their own.
+
+    Every reader goes through here — the project page and the MCP alike. Putting
+    the filter in the template instead would leave the MCP serving what the page
+    hides, which is the third time that shape of mistake would have bitten
+    (SPEC.md §8): the constraint belongs in the function that reads, not in the
+    view that renders.
+    """
+    uid = user.id if user else None
+    return [l for l in project.links if l.user_id is None or l.user_id == uid]
 
 
 def personal_workspace(db, user: User) -> "Workspace | None":
@@ -699,6 +729,7 @@ _MIGRATIONS = [
     "ALTER TABLE api_keys ADD COLUMN last_used_at DATETIME",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",
+    "ALTER TABLE links ADD COLUMN user_id INTEGER",
     "ALTER TABLE workspaces ADD COLUMN kind VARCHAR DEFAULT 'group'",
     "ALTER TABLE workspaces ADD COLUMN owner_id INTEGER",
     "UPDATE workspaces SET kind = 'group' WHERE kind IS NULL",

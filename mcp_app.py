@@ -25,7 +25,7 @@ from models import (
     LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
     Note, Project, SessionLocal, Submission, effective_status,
     OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
-    last_event_at, log_event, snap, user_workspaces, utcnow,
+    last_event_at, log_event, snap, user_workspaces, utcnow, visible_links,
 )
 # Aliased: the tool below is also called open_submission, and the model-facing
 # name is the one that must stay readable.
@@ -139,8 +139,12 @@ def get_project(workspace: str, project_id: int) -> dict:
              "outcome": s.outcome, "outcome_label": OUTCOME_LABELS.get(s.outcome),
              "days_open": s.days_open}
             for s in sorted(p.submissions, key=lambda s: s.submitted_at or utcnow())]
-        out["links"] = [{"kind": l.kind, "target": l.target, "label": l.label}
-                        for l in p.links]
+        # Same filter as the web page, from the same function: a private link
+        # hidden on the page and served here would be worse than not having the
+        # feature at all.
+        out["links"] = [{"kind": l.kind, "target": l.target, "label": l.label,
+                         "private": l.user_id is not None}
+                        for l in visible_links(p, auth.current_caller())]
         out["notes"] = [
             {"date": n.ts.strftime("%Y-%m-%d"),
              "author": n.author_label or (n.user.name if n.user else None),
@@ -412,10 +416,15 @@ def record_outcome(workspace: str, submission_id: int, outcome: str,
 
 @mcp.tool()
 def add_link(workspace: str, project_id: int, kind: str, target: str,
-             label: str = "") -> dict:
+             label: str = "", private: bool = False) -> dict:
     """Attach a link. kind: wiki, file, grant, lssr, doi, url, repo. This is how
     a project stops being an island and points at the wiki page, the draft on
-    disk, the grant, the systematic review."""
+    disk, the grant, the systematic review.
+
+    Set `private` when the target is somewhere only you can reach — a path in a
+    personal wiki or vault, a local file. Private links are visible only to you,
+    here and on the web. Prefer it over a shared link nobody else can follow:
+    that is not shared information, it is a leaked filename."""
     db = SessionLocal()
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
@@ -430,11 +439,16 @@ def add_link(workspace: str, project_id: int, kind: str, target: str,
         if not target.strip():
             return _fail("A target is required")
         db.add(Link(project_id=p.id, kind=kind, target=target.strip(),
-                    label=label.strip() or None))
+                    label=label.strip() or None,
+                    user_id=user.id if private else None))
+        # A private link's target is the thing being kept private: it must not
+        # land in the event payload, which the whole workspace can read.
         log_event(db, p, user, "link_added",
-                  payload=json.dumps({"kind": kind, "target": target.strip()}))
+                  payload=json.dumps({"kind": kind, "private": True} if private
+                                     else {"kind": kind,
+                                           "target": target.strip()}))
         db.commit()
-        return {"ok": True, "links": len(p.links)}
+        return {"ok": True, "links": len(p.links), "private": bool(private)}
     except (LookupError, PermissionError) as e:
         return _fail(str(e))
     finally:

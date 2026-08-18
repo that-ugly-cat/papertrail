@@ -409,3 +409,5 @@ tr.revoked { opacity: .5; }
 }
 .note-body.clamp p { margin: 0 0 4px; }
 .note-more { font-size: 12px; margin-top: 2px; }
+.badge-private { background: var(--card); border: 1px dashed var(--border); color: var(--muted); }
+.link-private { flex-basis: 100%; font-size: 12px; margin: 4px 0 0; }
