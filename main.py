@@ -786,8 +786,50 @@ def open_sub(slug: str, pid: int, venue: str = Form(...),
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 
 
+@app.post("/w/{slug}/p/{pid}/submissions/{sid}/edit")
+def edit_submission(slug: str, pid: int, sid: int, venue: str = Form(...),
+                    submitted_at: str = Form(""), outcome_at: str = Form(""),
+                    acc: WorkspaceAccess = Depends(workspace_dep("write"))):
+    """
+    Correct an attempt's venue or dates.
+
+    Separate from recording an outcome on purpose: one is saying what happened,
+    the other is fixing what we wrote down. Conflating them is how a typo
+    correction ends up logged as an editorial decision.
+    """
+    db = acc.db
+    p = _project_or_404(acc, pid)
+    s = db.query(Submission).filter(Submission.id == sid,
+                                    Submission.project_id == p.id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Not found")
+    changed = {}
+    new_venue = snap(venue, known_venues(db, acc.workspace))
+    if new_venue and new_venue != s.venue:
+        changed["venue"] = [s.venue, new_venue]
+        s.venue = new_venue
+    for field, raw in (("submitted_at", submitted_at), ("outcome_at", outcome_at)):
+        current = getattr(s, field)
+        parsed = None
+        if raw.strip():
+            try:
+                parsed = datetime.strptime(raw.strip(), "%Y-%m-%d")
+            except ValueError:
+                parsed = current
+        if parsed != current:
+            changed[field] = [current and current.strftime("%Y-%m-%d"),
+                              parsed and parsed.strftime("%Y-%m-%d")]
+            setattr(s, field, parsed)
+    if changed:
+        log_event(db, p, acc.user, "field_changed",
+                  payload=json.dumps({"submission": s.id, "fields": changed}))
+        db.commit()
+    return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
+
+
 @app.post("/w/{slug}/p/{pid}/submissions/{sid}/outcome")
 def sub_outcome(slug: str, pid: int, sid: int, outcome: str = Form(...),
+                note: str = Form(""),
                 acc: WorkspaceAccess = Depends(workspace_dep("write"))):
     db = acc.db
     p = _project_or_404(acc, pid)
@@ -803,6 +845,22 @@ def sub_outcome(slug: str, pid: int, sid: int, outcome: str = Form(...),
                   payload=json.dumps({"venue": s.venue, "outcome": outcome,
                                       "attempt": s.attempt,
                                       "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
+        # A closing outcome moves the card too: leaving it in `submitted` after
+        # a rejection is the drift that produced the Smoking bans mismatch.
+        if outcome not in KEEPS_ATTEMPT_OPEN and p.status in ("submitted",
+                                                              "in_revision"):
+            new = "published" if outcome == "accept" else "ready"
+            log_event(db, p, acc.user, "status_change",
+                      from_status=p.status, to_status=new)
+            p.status = new
+        elif outcome in KEEPS_ATTEMPT_OPEN and p.status == "submitted":
+            log_event(db, p, acc.user, "status_change",
+                      from_status=p.status, to_status="in_revision")
+            p.status = "in_revision"
+        if note.strip():
+            db.add(Note(project_id=p.id, user_id=acc.user.id,
+                        body_md=note.strip(), source="web", ts=utcnow()))
+            log_event(db, p, acc.user, "note_added")
         db.commit()
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 

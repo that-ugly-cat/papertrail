@@ -161,37 +161,102 @@
 
     <div class="card">
       <h2>Submissions</h2>
-      {% for s in subs %}
-      <div class="sub">
-        <div>
-          <strong>{{ s.venue }}</strong>
-          <span class="muted small">attempt {{ s.attempt }} · {{ s.submitted_at.strftime('%d/%m/%Y') }}</span>
+
+      {% set live = open_submission(p) %}
+      {% if live %}
+      {# The open attempt is the operative one: it gets the space, the actions,
+         and the day count. Everything else is history. #}
+      <div class="sub-live">
+        <div class="sub-live-head">
+          <strong>{{ live.venue }}</strong>
+          <span class="badge badge-status">{{ live.days_open }} days</span>
         </div>
-        <div class="small">
-          {{ OUTCOME_LABELS[s.outcome] }}
-          {% if s.outcome == 'pending' %}<span class="muted">for {{ s.days_open }} days</span>{% endif %}
+        <div class="muted small">
+          attempt {{ live.attempt }} · sent {{ live.submitted_at.strftime('%d/%m/%Y') }}
         </div>
+        {% if live.notes %}
+        <ul class="rounds">
+          {% for line in live.notes.split('
+') if line.strip() and not line.startswith('Ricostruita') %}
+          <li>{{ line }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
         {% if can_write %}
-        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ s.id }}/outcome" class="inline-form">
-          <select name="outcome">
-            {% for o in SUBMISSION_OUTCOMES %}
-            <option value="{{ o }}" {% if o == s.outcome %}selected{% endif %}>{{ OUTCOME_LABELS[o] }}</option>
-            {% endfor %}
-          </select>
-          <button class="btn btn-ghost" type="submit">Record</button>
+        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ live.id }}/outcome">
+          <label>What happened
+            <select name="outcome">
+              <optgroup label="Still at this venue — the clock keeps running">
+                {% for o in OUTCOMES_REVISION %}<option value="{{ o }}">{{ OUTCOME_LABELS[o] }}</option>{% endfor %}
+              </optgroup>
+              <optgroup label="Closes this attempt">
+                <option value="accept">{{ OUTCOME_LABELS['accept'] }}</option>
+                {% for o in OUTCOMES_BACK %}<option value="{{ o }}">{{ OUTCOME_LABELS[o] }}</option>{% endfor %}
+              </optgroup>
+            </select>
+          </label>
+          <label>Note <span class="muted small">(optional)</span>
+            <textarea name="note" rows="2" placeholder="Editor's reason, next venue in mind…"></textarea>
+          </label>
+          <button class="btn btn-primary btn-sm" type="submit">Record</button>
         </form>
+        <details class="tweak">
+          <summary>Correct venue or dates</summary>
+          <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ live.id }}/edit" class="inline-form">
+            <input name="venue" value="{{ live.venue }}" list="vocab-venues" autocomplete="off">
+            <input type="date" name="submitted_at" value="{{ live.submitted_at.strftime('%Y-%m-%d') }}">
+            <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+          </form>
+        </details>
         {% endif %}
       </div>
-      {% else %}
-      <p class="muted small">Never submitted.</p>
-      {% endfor %}
-      {% if can_write %}
+      {% elif can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions" class="inline-form">
         <input name="venue" placeholder="Journal, publisher, platform…" required
                list="vocab-venues" autocomplete="off">
-        <input name="submitted_at" type="date">
-        <button class="btn btn-ghost" type="submit">Open</button>
+        <input type="date" name="submitted_at">
+        <button class="btn btn-primary btn-sm" type="submit">Send out</button>
       </form>
+      {% endif %}
+
+      {% set past = subs | rejectattr('outcome', 'equalto', 'pending') | list %}
+      {% if past %}
+      <h3 class="small">History — {{ past|length }} attempt{{ '' if past|length == 1 else 's' }}</h3>
+      <ol class="chain">
+        {% for s in past|sort(attribute='attempt') %}
+        <li class="chain-row outcome-{{ s.outcome }}">
+          <span class="chain-n">{{ s.attempt }}</span>
+          <span class="chain-venue">{{ s.venue }}</span>
+          <span class="chain-dates muted small">
+            {{ s.submitted_at.strftime('%d/%m/%y') if s.submitted_at else '?' }}
+            {%- if s.outcome_at %} → {{ s.outcome_at.strftime('%d/%m/%y') }}
+              {%- if s.submitted_at and s.outcome_at > s.submitted_at %}
+              · {{ (s.outcome_at - s.submitted_at).days }}d{% endif %}
+            {%- endif %}
+          </span>
+          <span class="chain-outcome">{{ OUTCOME_LABELS[s.outcome] }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+      {% if can_write %}
+      <details class="tweak">
+        <summary>Edit history</summary>
+        <p class="muted small">Changing a closed attempt rewrites the record. Do
+          it to fix a mistake, not to reinterpret an outcome.</p>
+        {% for s in past|sort(attribute='attempt') %}
+        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ s.id }}/edit" class="inline-form">
+          <span class="chain-n">{{ s.attempt }}</span>
+          <input name="venue" value="{{ s.venue }}" list="vocab-venues" autocomplete="off">
+          <input type="date" name="submitted_at" value="{{ s.submitted_at.strftime('%Y-%m-%d') if s.submitted_at else '' }}">
+          <input type="date" name="outcome_at" value="{{ s.outcome_at.strftime('%Y-%m-%d') if s.outcome_at else '' }}">
+          <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+        </form>
+        {% endfor %}
+      </details>
+      {% endif %}
+      {% elif not live %}
+      <p class="muted small">Never sent out.</p>
       {% endif %}
     </div>
 

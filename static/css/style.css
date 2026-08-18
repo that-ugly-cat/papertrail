@@ -320,3 +320,46 @@ tr.revoked { opacity: .5; }
 .hscroll::-webkit-scrollbar-thumb:hover { background-clip: content-box; background-color: var(--accent); }
 /* room so the last row of cards is never hidden behind the strip */
 .board-main { padding-bottom: 34px; }
+
+/* ── submissions: the open attempt, then the chain ── */
+.sub-live {
+  background: rgba(74, 111, 165, .10);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px;
+}
+.sub-live-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sub-live-head strong { font-size: 15px; }
+.sub-live form { margin-top: 10px; }
+.sub-live label { margin-bottom: 8px; }
+.rounds { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-left: 2px solid var(--border); }
+.rounds li { font-size: 12px; color: var(--muted); padding: 1px 0; }
+
+.chain { list-style: none; margin: 6px 0 0; padding: 0; counter-reset: none; }
+.chain-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-areas: "n venue dates" ". outcome outcome";
+  gap: 1px 8px; align-items: baseline;
+  padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.chain-row:last-child { border-bottom: none; }
+.chain-n { grid-area: n; color: var(--muted-3); font-size: 11px; }
+.chain-venue { grid-area: venue; color: var(--text); }
+.chain-dates { grid-area: dates; white-space: nowrap; }
+.chain-outcome { grid-area: outcome; font-size: 12px; color: var(--muted-2); }
+.outcome-accept .chain-outcome { color: var(--ok); }
+.outcome-accept .chain-venue { font-weight: 600; }
+.outcome-desk_reject .chain-outcome,
+.outcome-reject_after_review .chain-outcome { color: var(--danger); }
+.outcome-transferred .chain-outcome { color: var(--warn); }
+.outcome-unknown .chain-outcome { color: var(--muted-3); font-style: italic; }
+
+.tweak { margin-top: 10px; }
+.tweak summary {
+  cursor: pointer; font-size: 12px; color: var(--muted-2);
+  list-style: none; padding: 2px 0;
+}
+.tweak summary::-webkit-details-marker { display: none; }
+.tweak summary::before { content: "▸ "; }
+.tweak[open] summary::before { content: "▾ "; }
+.tweak summary:hover { color: var(--text); }
