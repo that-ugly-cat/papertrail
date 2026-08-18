@@ -28,8 +28,14 @@
     <input type="checkbox" name="dormant" value="1" {% if dormant %}checked{% endif %}>
     dormant only ({{ dormant_days }}d)
   </label>
+  {% if n_mismatch %}
+  <label class="check" title="The column disagrees with the submission record">
+    <input type="checkbox" name="mismatch" value="1" {% if mismatch %}checked{% endif %}>
+    status mismatch ({{ n_mismatch }})
+  </label>
+  {% endif %}
   <button class="btn btn-ghost" type="submit">Filter</button>
-  {% if q or sel_person or dormant %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
+  {% if q or sel_person or dormant or mismatch %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
 </form>
 
 <div class="kanban" id="kanban" data-slug="{{ ws.slug }}" data-canwrite="{{ 1 if can_write else 0 }}">

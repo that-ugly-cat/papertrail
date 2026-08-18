@@ -362,7 +362,7 @@ def personal_done(request: Request, user: User = Depends(get_current_user),
 
 @app.get("/w/{slug}", response_class=HTMLResponse)
 def board(request: Request, slug: str, person: int | None = None,
-          q: str | None = None, dormant: int = 0,
+          q: str | None = None, dormant: int = 0, mismatch: int = 0,
           acc: WorkspaceAccess = Depends(workspace_dep("read"))):
     db, ws = acc.db, acc.workspace
     projects = (_projects_in(db, ws)
@@ -379,6 +379,8 @@ def board(request: Request, slug: str, person: int | None = None,
                     or needle in (p.final_title or "").lower()]
     if dormant:
         projects = [p for p in projects if is_dormant(p, ws.dormant_after_days)]
+    if mismatch:
+        projects = [p for p in projects if effective_status(p)["diverges"]]
 
     columns = {s: [] for s in STATUSES}
     for p in projects:
@@ -398,7 +400,9 @@ def board(request: Request, slug: str, person: int | None = None,
         {"user": acc.user, "ws": ws, "role": acc.role,
          "can_write": acc.can_write, "can_admin": acc.can_admin,
          "columns": columns, "people": people, "sel_person": person,
-         "q": q or "", "dormant": dormant,
+         "q": q or "", "dormant": dormant, "mismatch": mismatch,
+         "n_mismatch": sum(1 for p in (_projects_in(db, ws).all())
+                           if effective_status(p)["diverges"]),
          "dormant_days": ws.dormant_after_days, "venues": venues,
          "is_dormant": lambda p: is_dormant(p, ws.dormant_after_days)},
     )

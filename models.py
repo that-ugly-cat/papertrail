@@ -512,14 +512,20 @@ def effective_status(project: Project) -> dict:
     else:
         s = open_submission(project)
         if s:
-            # An attempt still open while the project sits outside `submitted`
+            # An attempt still open while the project sits in writing/active
             # means the paper is at that venue but back in the authors' hands:
             # a revision round. Same fact, different word, and the day count
             # keeps running because the venue still has it.
-            back_with_authors = declared not in ("submitted", "ready")
+            back_with_authors = declared in ("writing", "active", "in_revision")
             label = "In revision" if back_with_authors else "Under review"
             detail = f"{s.venue} · {s.days_open}d"
-            diverges = declared in ("published", "archived")
+            # Anything else is stale. `ready` with an open attempt is the common
+            # one and the easiest to miss: you cannot be ready to submit
+            # something that is already under review. It happens when the note
+            # gets written and the card does not get moved, which is exactly the
+            # drift this flag exists to surface.
+            diverges = declared not in ("submitted", "in_revision",
+                                        "writing", "active")
         else:
             last = last_submission(project)
             if last and last.outcome == "accept":
