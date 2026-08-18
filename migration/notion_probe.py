@@ -109,6 +109,23 @@ def user_directory() -> dict[str, str]:
     return people
 
 
+def resolve_user(uid: str, people: dict[str, str]) -> str:
+    """
+    Name for a user id, falling back to a direct lookup.
+
+    /v1/users lists workspace *members* only. Someone who is a guest on the page
+    — which is how Federico appears here — is absent from that list but resolves
+    fine one id at a time. Without this fallback his 70 comments would import
+    signed by a UUID.
+    """
+    if not uid:
+        return "?"
+    if uid not in people:
+        u = call(f"users/{uid}")
+        people[uid] = ((u or {}).get("name") or uid[:8]) if u and "_error" not in u else uid[:8]
+    return people[uid]
+
+
 def main():
     limit = None
     if "--limit" in sys.argv:
@@ -146,8 +163,7 @@ def main():
         if cdata and "_error" not in cdata:
             for c in cdata.get("results", []):
                 n_page += 1
-                who = c.get("created_by", {})
-                authors[people.get(who.get("id"), who.get("id", "?")[:8])] += 1
+                authors[resolve_user(c.get("created_by", {}).get("id"), people)] += 1
 
         # Inline comments live on child blocks, so page-level retrieval misses
         # them. One level down is enough to size the problem.
@@ -166,9 +182,8 @@ def main():
                     if ic and "_error" not in ic:
                         for c in ic.get("results", []):
                             n_inline += 1
-                            who = c.get("created_by", {})
-                            authors[people.get(who.get("id"),
-                                               who.get("id", "?")[:8])] += 1
+                            authors[resolve_user(
+                                c.get("created_by", {}).get("id"), people)] += 1
 
         comments_total += n_page
         inline_total += n_inline
@@ -208,6 +223,8 @@ def main():
         json.dumps({"ok": ok, "total": len(pages), "errors": dict(errors),
                     "comments_page": comments_total, "comments_inline": inline_total,
                     "authors": dict(authors),
+                    "per_page": [{"n": n, "title": t} for n, t in
+                                 sorted(per_page, reverse=True)],
                     "created": [{"created": c, "edited": e, "title": t}
                                 for c, e, t in created]},
                    indent=1, ensure_ascii=False), encoding="utf-8")
