@@ -49,10 +49,20 @@ ACTIONS = [
     # milestone inside the attempt that is already open, never a new submission.
     # "to revise and resubmit" would otherwise be caught by `resubmit` below and
     # would open a phantom attempt.
-    ("revision", r"\brevise and resubmit\b|\bmajor revision\b|\bminor revision\b"
+    ("revision", r"\brevise[d]? and re-?submit(?:ted)?\b"
+                 r"|\bmajor revision\b|\bminor revision\b"
                  r"|\bto revise\b|\breviews? (?:received|back)\b|\bgot reviews?\b"
                  r"|\breview\s*\d*\s*(?:submitted|done|sent|completed)\b"
                  r"|\breview round\s*\d*\b"),
+    # A cascade transfer ends the attempt at one venue and opens one at a sister
+    # journal with no rejection in between (7 notes across 4 projects). Tested
+    # before `reject`, because the corpus writes "rejected by SSM; transfer
+    # proposed to X", and before `submit`, because "transferred submission to X"
+    # contains both verbs.
+    ("transfer", r"\b(?:desk[- ])?transferr?(?:ed|s|ing)?\b"
+                 r"|\btransfer (?:offered|proposed|to)\b"),
+    # Chasing a silent editor. A milestone on the open attempt, not a state.
+    ("solicit", r"\bsolicit(?:ed)?\b|\bchased\b|\bescalat(?:ed|e)\b"),
     ("resubmit", r"\bre-?submit(?:ted|ting)?\b"),
     ("desk_reject", r"\bdesk[- ]?reject(?:ed|ion)?\b"),
     ("reject", r"\breject(?:ed|ion|s)?\b|\bdeclin(?:ed|e)\b|\bnot? answer\b"),
@@ -131,6 +141,12 @@ def clean_venue(v: str | None) -> str | None:
     return v
 
 
+VENUE_BEFORE = re.compile(
+    r"^\s*(?:\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\s*:?\s*)?"
+    r"([A-Z][\w&.'\- ]{2,40}?)\s+(?:rejects?|rejected|accepts?|accepted|"
+    r"says? no|declines?)")
+
+
 def find_venue(clause: str, action: str) -> str | None:
     """
     Which preposition carries the venue depends on the verb.
@@ -139,7 +155,14 @@ def find_venue(clause: str, action: str) -> str | None:
     person who sent it, and the venue is in the parentheses. After a rejection,
     "rejected by The Lancet" is the normal phrasing and "by" is exactly right.
     """
-    preps = r"to|at" if action in ("submit", "resubmit") else r"to|by|from|at"
+    # "PUS rejects: …" puts the venue in front of the verb, where no
+    # preposition will find it.
+    m0 = VENUE_BEFORE.match(clause)
+    if m0:
+        v0 = clean_venue(m0.group(1))
+        if v0:
+            return v0
+    preps = r"to|at" if action in ("submit", "resubmit", "transfer") else r"to|by|from|at"
     m = re.search(
         rf"\b(?:{preps})\s+([^,;.()]{{2,60}}?)"
         r"(?=\s*(?:[,;.()]|$|\bafter\b|\bfor\b))", clause, re.I)
@@ -164,6 +187,12 @@ def split_clauses(body: str) -> list[str]:
         "submitted heliyon review submitted 24.02.2026 rejected 08.04.2026"
     Split on separators, then again before any verb that starts a new event.
     """
+    # "revised and resubmitted" is one revision round, but the splitter below
+    # cuts before "resubmitted" and the orphan fragment then reads as a fresh
+    # attempt. Protect the phrase, split, restore.
+    GUARD = "\x00REVROUND\x00"
+    body = re.sub(r"\brevise[d]? and re-?submit(?:ted)?\b", GUARD, body,
+                  flags=re.I)
     parts = re.split(r"[;\n]|,(?=\s*\d{0,2}[.\s]*(?:re-?submit|reject|accept))",
                      body)
     out = []
@@ -171,8 +200,9 @@ def split_clauses(body: str) -> list[str]:
         pieces = re.split(
             r"(?=\b(?:re-?submitted|rejected|accepted|withdrawn|submitted)\b)",
             p, flags=re.I)
-        out.extend(x for x in pieces if x.strip())
-    return out or [body]
+        out.extend(x.replace(GUARD, "revised and resubmitted")
+                   for x in pieces if x.strip())
+    return out or [body.replace(GUARD, "revised and resubmitted")]
 
 
 def classify(clause: str) -> str | None:
@@ -206,7 +236,8 @@ def events_from_note(note: Note) -> list[dict]:
 
 
 CLOSERS = {"reject": "reject_after_review", "desk_reject": "desk_reject",
-           "accept": "accept", "withdraw": "withdrawn"}
+           "accept": "accept", "withdraw": "withdrawn",
+           "transferred": "transferred"}
 
 
 def build_chain(events: list[dict]) -> list[dict]:
@@ -221,7 +252,23 @@ def build_chain(events: list[dict]) -> list[dict]:
     events.sort(key=lambda e: e["date"] or utcnow())
     chain, open_attempt = [], None
     for e in events:
-        if e["action"] in ("submit", "resubmit"):
+        if e["action"] in ("submit", "resubmit", "transfer"):
+            if e["action"] == "transfer" and open_attempt                     and open_attempt["outcome"] == "pending"                     and (not e["venue"] or not open_attempt["venue"]
+                         or e["venue"].lower() != open_attempt["venue"].lower()):
+                open_attempt["outcome"] = "transferred"
+                open_attempt["outcome_at"] = e["date"]
+                open_attempt["evidence"].append(e["raw"])
+            # "rejected; resubmit to PHE" states an intention, and the next note
+            # states the act; "transfer proposed to X" then "transferred to X"
+            # is the same move written twice. Same venue within a fortnight is
+            # one attempt.
+            if (open_attempt and open_attempt["outcome"] == "pending"
+                    and e["venue"] and open_attempt["venue"]
+                    and e["venue"].lower() == open_attempt["venue"].lower()
+                    and e["date"] and open_attempt["submitted_at"]
+                    and abs((e["date"] - open_attempt["submitted_at"]).days) <= 14):
+                open_attempt["evidence"].append(e["raw"])
+                continue
             # A new attempt opening while another is still open means the first
             # one's outcome was never written down. Marking it rejected would be
             # a guess, so it stays pending but is flagged: an attempt superseded
@@ -234,6 +281,9 @@ def build_chain(events: list[dict]) -> list[dict]:
                             "outcome": "pending", "outcome_at": None,
                             "confidence": e["confidence"], "evidence": [e["raw"]]}
             chain.append(open_attempt)
+        elif e["action"] == "solicit":
+            if open_attempt:
+                open_attempt["evidence"].append(e["raw"])
         elif e["action"] in CLOSERS:
             if open_attempt and open_attempt["outcome"] == "pending":
                 open_attempt["outcome"] = CLOSERS[e["action"]]
@@ -333,6 +383,8 @@ def main():
     ap.add_argument("--from-csv", action="store_true",
                     help="applica submissions_review.csv, solo le righe con ok")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--statuses", default="ready,submitted,in_revision,published",
+                    help="only these statuses (comma separated); empty for all")
     args = ap.parse_args()
 
     if args.from_csv:
@@ -352,6 +404,9 @@ def main():
         sys.exit(f"Workspace '{args.workspace}' inesistente.")
 
     projects = db.query(Project).filter(Project.workspace_id == ws.id).all()
+    if args.statuses:
+        keep = {x.strip() for x in args.statuses.split(",") if x.strip()}
+        projects = [p for p in projects if p.status in keep]
     proposal, stats = [], Counter()
 
     for p in projects:
