@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Workspace — PaperTrail{% endblock %}
+{% block body %}
+<div class="page-head">
+  <h1>Workspace</h1>
+</div>
+
+{% if not rows %}
+<div class="card">
+  <p class="muted">Non fai parte di nessun workspace.</p>
+  {% if user.is_admin %}
+  <p class="small muted">Sei amministratore di sistema: puoi crearne uno da
+    <a href="/admin">Admin</a>. Essere admin non ti dà accesso ai contenuti
+    altrui, solo la facoltà di creare.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="ws-grid">
+  {% for ws, role in rows %}
+  <a class="ws-card" href="/w/{{ ws.slug }}">
+    <div class="ws-card-top">
+      <h2>{{ ws.name }}</h2>
+      <span class="pill pill-{{ role }}">{{ role }}</span>
+    </div>
+    {% if ws.description %}<p class="muted small">{{ ws.description }}</p>{% endif %}
+    <p class="small muted">{{ counts.get(ws.id, 0) }} progetti</p>
+  </a>
+  {% endfor %}
+</div>
+{% endblock %}

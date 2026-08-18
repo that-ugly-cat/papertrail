@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Membri · {{ ws.name }} — PaperTrail{% endblock %}
+{% block body %}
+<p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
+<h1>Membri di {{ ws.name }}</h1>
+
+<div class="card">
+  <p class="small muted">
+    Chi non compare qui non ha accesso: per quella persona il workspace non
+    esiste, e l'indirizzo risponde 404. Non c'è un livello "nessun accesso" da
+    impostare, si toglie la riga.
+  </p>
+  <table class="table">
+    <thead><tr><th>Persona</th><th>Ruolo</th><th></th></tr></thead>
+    <tbody>
+      {% for m, u in rows %}
+      <tr>
+        <td>{{ u.name }} <span class="muted small">{{ u.email }}</span></td>
+        <td>
+          <form method="post" action="/w/{{ ws.slug }}/members/{{ m.id }}" class="inline-form">
+            <select name="role" onchange="this.form.submit()">
+              {% for r in ROLES %}<option value="{{ r }}" {% if r == m.role %}selected{% endif %}>{{ r }}</option>{% endfor %}
+            </select>
+          </form>
+        </td>
+        <td class="ta-right">
+          <form method="post" action="/w/{{ ws.slug }}/members/{{ m.id }}/remove" class="inline">
+            <button class="btn btn-ghost btn-sm" type="submit">Rimuovi</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Aggiungi</h2>
+  {% if candidates %}
+  <form method="post" action="/w/{{ ws.slug }}/members" class="inline-form">
+    <select name="user_id">
+      {% for u in candidates %}<option value="{{ u.id }}">{{ u.name }} — {{ u.email }}</option>{% endfor %}
+    </select>
+    <select name="role">
+      {% for r in ROLES %}<option value="{{ r }}" {% if r == 'write' %}selected{% endif %}>{{ r }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-primary" type="submit">Aggiungi</button>
+  </form>
+  {% else %}
+  <p class="muted small">Tutti gli utenti registrati sono già membri.
+    {% if user.is_admin %}Creane altri da <a href="/admin">Admin</a>.{% endif %}</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}{{ p.title }} — PaperTrail{% endblock %}
+{% block body %}
+
+<p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
+
+<div class="page-head">
+  <h1>{{ p.final_title or p.title }}</h1>
+  <div class="badges">
+    <span class="badge badge-status">{{ eff.label }}{% if eff.detail %} · {{ eff.detail }}{% endif %}</span>
+    {% if dormant %}<span class="badge badge-warn">dormiente</span>{% endif %}
+  </div>
+</div>
+
+{% if eff.diverges %}
+<div class="alert alert-warn small">
+  Lo stato dichiarato (<strong>{{ STATUS_LABELS[p.status] }}</strong>) non coincide
+  con quello che dicono le submission e il DOI. Non è stato sovrascritto niente:
+  correggi tu quello dei due che è sbagliato.
+</div>
+{% endif %}
+
+<div class="cols2">
+  <div>
+
+    <div class="card">
+      <h2>Dettagli</h2>
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}">
+        <label>Titolo di lavoro
+          <input name="title" value="{{ p.title }}" required>
+        </label>
+        <label>Titolo finale
+          <input name="final_title" value="{{ p.final_title or '' }}">
+        </label>
+        <label>Stato
+          <select name="status">
+            {% for st in STATUSES %}
+            <option value="{{ st }}" {% if st == p.status %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="row2">
+          <label>Journal
+            <input name="journal" value="{{ p.journal or '' }}">
+          </label>
+          <label>Anno
+            <input name="pub_year" value="{{ p.pub_year or '' }}" inputmode="numeric">
+          </label>
+        </div>
+        <label>DOI
+          <input name="doi" value="{{ p.doi or '' }}" placeholder="10.xxxx/…">
+        </label>
+        <label>Summary
+          <textarea name="summary" rows="4">{{ p.summary or '' }}</textarea>
+        </label>
+        <button class="btn btn-primary" type="submit">Salva</button>
+      </form>
+      {% else %}
+      <dl class="ro">
+        <dt>Stato</dt><dd>{{ STATUS_LABELS[p.status] }}</dd>
+        {% if p.journal %}<dt>Journal</dt><dd>{{ p.journal }}</dd>{% endif %}
+        {% if p.pub_year %}<dt>Anno</dt><dd>{{ p.pub_year }}</dd>{% endif %}
+        {% if p.doi %}<dt>DOI</dt><dd>{{ p.doi }}</dd>{% endif %}
+        {% if p.summary %}<dt>Summary</dt><dd>{{ p.summary }}</dd>{% endif %}
+      </dl>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Note</h2>
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/notes">
+        <textarea name="body" rows="3" placeholder="Markdown accettato…" required></textarea>
+        <button class="btn btn-ghost" type="submit">Aggiungi nota</button>
+      </form>
+      {% endif %}
+      {% for n in notes %}
+      <div class="note">
+        <div class="note-head small muted">
+          {{ n.author_label or (n.user.name if n.user else 'ignoto') }} ·
+          {{ n.ts.strftime('%d/%m/%Y %H:%M') }}
+          {% if n.source != 'web' %}<span class="badge">{{ n.source }}</span>{% endif %}
+        </div>
+        <div class="note-body">{{ n.body_md | markdown }}</div>
+      </div>
+      {% else %}
+      <p class="muted small">Nessuna nota.</p>
+      {% endfor %}
+    </div>
+
+  </div>
+  <div>
+
+    <div class="card">
+      <h2>Autori</h2>
+      <ul class="plain">
+        {% for a in p.authorships %}
+        <li>
+          <span>{{ a.person.name }} <span class="muted small">{{ a.role }}</span></span>
+          {% if can_write %}
+          <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/authors/{{ a.id }}/remove" class="inline">
+            <button class="linkbtn" type="submit" title="Rimuovi">×</button>
+          </form>
+          {% endif %}
+        </li>
+        {% else %}
+        <li class="muted small">Nessun autore.</li>
+        {% endfor %}
+      </ul>
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/authors" class="inline-form">
+        <input name="name" placeholder="Nome" required>
+        <select name="role">
+          {% for r in AUTHOR_ROLES %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-ghost" type="submit">+</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Submission</h2>
+      {% for s in subs %}
+      <div class="sub">
+        <div>
+          <strong>{{ s.venue }}</strong>
+          <span class="muted small">tentativo {{ s.attempt }} · {{ s.submitted_at.strftime('%d/%m/%Y') }}</span>
+        </div>
+        <div class="small">
+          {{ OUTCOME_LABELS[s.outcome] }}
+          {% if s.outcome == 'pending' %}<span class="muted">da {{ s.days_open }} giorni</span>{% endif %}
+        </div>
+        {% if can_write %}
+        <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ s.id }}/outcome" class="inline-form">
+          <select name="outcome">
+            {% for o in SUBMISSION_OUTCOMES %}
+            <option value="{{ o }}" {% if o == s.outcome %}selected{% endif %}>{{ OUTCOME_LABELS[o] }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-ghost" type="submit">Registra</button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="muted small">Mai sottomesso.</p>
+      {% endfor %}
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions" class="inline-form">
+        <input name="venue" placeholder="Journal" required>
+        <input name="submitted_at" type="date">
+        <button class="btn btn-ghost" type="submit">Apri</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Collegamenti</h2>
+      <ul class="plain">
+        {% for l in p.links %}
+        <li>
+          <span><span class="badge">{{ l.kind }}</span>
+            {% if l.kind in ('url', 'doi', 'repo', 'lssr', 'grant') %}
+            <a href="{{ l.target }}" target="_blank" rel="noopener">{{ l.label or l.target }}</a>
+            {% else %}{{ l.label or l.target }}{% endif %}
+          </span>
+          {% if can_write %}
+          <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/links/{{ l.id }}/remove" class="inline">
+            <button class="linkbtn" type="submit" title="Rimuovi">×</button>
+          </form>
+          {% endif %}
+        </li>
+        {% else %}
+        <li class="muted small">Nessun collegamento.</li>
+        {% endfor %}
+      </ul>
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/links" class="inline-form">
+        <select name="kind">
+          {% for k in LINK_KINDS %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
+        </select>
+        <input name="target" placeholder="target" required>
+        <input name="label" placeholder="etichetta">
+        <button class="btn btn-ghost" type="submit">+</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Storia</h2>
+      <p class="small muted">Ultimo evento:
+        {{ last_event.strftime('%d/%m/%Y') if last_event else '—' }}</p>
+      <ul class="timeline">
+        {% for e in events %}
+        <li>
+          <span class="muted small">{{ e.ts.strftime('%d/%m/%y %H:%M') }}</span>
+          <span class="ev">{{ e.type }}</span>
+          {% if e.from_status %}<span class="small">{{ STATUS_LABELS.get(e.from_status, e.from_status) }} → {{ STATUS_LABELS.get(e.to_status, e.to_status) }}</span>{% endif %}
+          <span class="muted small">{{ e.user.name if e.user else '' }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

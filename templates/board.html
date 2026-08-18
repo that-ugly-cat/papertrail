@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ ws.name }} — PaperTrail{% endblock %}
+{% block main_class %}board-main{% endblock %}
+{% block body %}
+
+<div class="board-head">
+  <div>
+    <h1>{{ ws.name }}</h1>
+    {% if ws.description %}<p class="muted small">{{ ws.description }}</p>{% endif %}
+  </div>
+  <div class="board-actions">
+    <span class="pill pill-{{ role }}">{{ role }}</span>
+    {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Membri</a>{% endif %}
+    {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">Nuovo progetto</button>{% endif %}
+  </div>
+</div>
+
+<form class="filters" method="get" action="/w/{{ ws.slug }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Cerca titolo o summary…">
+  <select name="person">
+    <option value="">Tutti gli autori</option>
+    {% for p in people %}
+    <option value="{{ p.id }}" {% if sel_person == p.id %}selected{% endif %}>{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  <label class="check">
+    <input type="checkbox" name="dormant" value="1" {% if dormant %}checked{% endif %}>
+    solo dormienti ({{ dormant_days }}gg)
+  </label>
+  <button class="btn btn-ghost" type="submit">Filtra</button>
+  {% if q or sel_person or dormant %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Azzera</a>{% endif %}
+</form>
+
+<div class="kanban" id="kanban" data-slug="{{ ws.slug }}" data-canwrite="{{ 1 if can_write else 0 }}">
+  {% for st in STATUSES %}
+  <section class="col" data-status="{{ st }}">
+    <header class="col-head">
+      <span class="dot dot-{{ st }}"></span>
+      <span class="col-title">{{ STATUS_LABELS[st] }}</span>
+      <span class="col-count">{{ columns[st]|length }}</span>
+    </header>
+    <div class="col-body" data-status="{{ st }}">
+      {% for p in columns[st] %}
+      {% set eff = effective_status(p) %}
+      <article class="pcard" draggable="{{ 'true' if can_write else 'false' }}"
+               data-id="{{ p.id }}">
+        <a class="pcard-title" href="/w/{{ ws.slug }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
+        {% if eff.detail %}<div class="pcard-eff">{{ eff.label }} · {{ eff.detail }}</div>{% endif %}
+        <div class="pcard-meta">
+          {% for a in p.authorships %}<span class="who">{{ a.person.name }}</span>{% endfor %}
+        </div>
+        <div class="pcard-badges">
+          {% if is_dormant(p) %}<span class="badge badge-warn">dormiente</span>{% endif %}
+          {% if eff.diverges %}<span class="badge badge-danger" title="Lo stato dichiarato non coincide con le submission">stato divergente</span>{% endif %}
+          {% if p.notes %}<span class="badge">{{ p.notes|length }} note</span>{% endif %}
+          {% if p.pub_year %}<span class="badge">{{ p.pub_year }}</span>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+
+{% if can_write %}
+<dialog id="newproj" class="modal">
+  <form method="post" action="/w/{{ ws.slug }}/projects">
+    <h2>Nuovo progetto</h2>
+    <label>Titolo
+      <input name="title" required autofocus>
+    </label>
+    <label>Stato iniziale
+      <select name="status">
+        {% for st in STATUSES %}<option value="{{ st }}" {% if st == 'idea' %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('newproj').close()">Annulla</button>
+      <button type="submit" class="btn btn-primary">Crea</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}<script src="/static/js/kanban.js?v=1"></script>{% endblock %}

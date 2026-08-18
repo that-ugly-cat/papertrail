@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Accedi — PaperTrail{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <h1>PaperTrail</h1>
+  <p class="muted small">Dall'idea al paper pubblicato.</p>
+  {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="card">
+    <label>Email
+      <input type="email" name="email" required autofocus autocomplete="username">
+    </label>
+    <label>Password
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">Entra</button>
+  </form>
+</div>
+{% endblock %}

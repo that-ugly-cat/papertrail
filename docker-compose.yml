@@ -1,0 +1,15 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: papertrail
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8017:8017"
+    env_file:
+      - .env
+    # Guardrail on the shared 4 GB / 2-CPU box: this app is small, keep it small.
+    mem_limit: 300m
+    volumes:
+      - ./data:/app/data

@@ -33,8 +33,15 @@ membri di quel workspace, senza passare dall'amministratore di sistema.
 
 ## Stato
 
-Fase 0: specifica e fondazione del repo. Nessun codice ancora.
-Dettagli architetturali in `SPEC.md` (locale, non versionato).
+**Fase 1**, funzionante: login, workspace, membri e ruoli, progetti, board kanban
+con drag-and-drop e filtro per autore, event log, ciclo di submission nella sua
+forma minima (apri un tentativo, registra l'esito).
+
+Non c'è ancora: import da Notion, deadline, statistiche sulle latenze per
+journal, layer MCP, collegamento a Grant Radar e LSSR.
+
+Dettagli architetturali e roadmap in `SPEC.md` (locale, non versionato).
+Installazione e deploy in `DEPLOY.md`.
 
 ## Stack
 

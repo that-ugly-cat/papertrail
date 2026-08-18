@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Profilo — PaperTrail{% endblock %}
+{% block body %}
+<h1>Profilo</h1>
+{% if error %}<div class="alert">{{ error }}</div>{% endif %}
+{% if ok %}<div class="alert alert-ok">{{ ok }}</div>{% endif %}
+<div class="card">
+  <dl class="ro">
+    <dt>Nome</dt><dd>{{ user.name }}</dd>
+    <dt>Email</dt><dd>{{ user.email }}</dd>
+    <dt>Admin di sistema</dt><dd>{{ 'sì' if user.is_admin else 'no' }}</dd>
+  </dl>
+</div>
+<div class="card">
+  <h2>Cambia password</h2>
+  <form method="post" action="/profile/password">
+    <label>Password attuale
+      <input type="password" name="current" required autocomplete="current-password">
+    </label>
+    <label>Nuova password
+      <input type="password" name="new" required autocomplete="new-password">
+    </label>
+    <button class="btn btn-primary" type="submit">Aggiorna</button>
+  </form>
+</div>
+{% endblock %}
