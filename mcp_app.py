@@ -27,6 +27,9 @@ from models import (
     get_or_create_person, is_dormant, known_people, known_venues,
     last_event_at, log_event, snap, user_workspaces, utcnow,
 )
+# Aliased: the tool below is also called open_submission, and the model-facing
+# name is the one that must stay readable.
+from models import open_submission as _open_attempt  # noqa: E402
 
 mcp = MCPServer(
     name="papertrail",
@@ -309,11 +312,24 @@ def open_submission(workspace: str, project_id: int, venue: str,
                 when = datetime.strptime(submitted_at.strip(), "%Y-%m-%d")
             except ValueError:
                 return _fail("submitted_at must be YYYY-MM-DD")
+        venue = snap(venue, known_venues(db, ws))
+        # A resubmission after a revision reopens the same attempt: a second row
+        # would leave the first pending forever and shadow every later outcome.
+        reopened = _open_attempt(p)
+        if reopened and venue.lower() == reopened.venue.lower():
+            log_event(db, p, user, "submission_opened",
+                      payload=json.dumps({"venue": reopened.venue,
+                                          "attempt": reopened.attempt,
+                                          "resubmission": True}))
+            db.commit()
+            return {"ok": True, "submission_id": reopened.id,
+                    "venue": reopened.venue, "attempt": reopened.attempt,
+                    "resubmission": True,
+                    "note": "same attempt reopened, the clock kept running"}
         # Snap onto a venue already used here, so the model coining
         # "Nature Human Behavior" does not fork the stats for a journal already
         # recorded as "Nature Human Behaviour".
-        s = Submission(project_id=p.id,
-                       venue=snap(venue, known_venues(db, ws)),
+        s = Submission(project_id=p.id, venue=venue,
                        attempt=len(p.submissions) + 1, submitted_at=when,
                        outcome="pending")
         db.add(s)

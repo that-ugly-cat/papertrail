@@ -29,7 +29,9 @@ from auth import (
     workspace_dep,
 )
 from models import (
-    AUTHOR_ROLES, ApiKey, LINK_KINDS, OUTCOME_LABELS, ROLES, STATUSES, STATUS_LABELS,
+    AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS,
+    OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, ROLES, STATUSES,
+    STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, effective_status, get_db,
     get_or_create_person, init_db, is_dormant, known_people, known_venues,
@@ -64,6 +66,8 @@ templates.env.globals.update(
     STATUSES=STATUSES, STATUS_LABELS=STATUS_LABELS, ROLES=ROLES,
     AUTHOR_ROLES=AUTHOR_ROLES, LINK_KINDS=LINK_KINDS,
     SUBMISSION_OUTCOMES=SUBMISSION_OUTCOMES, OUTCOME_LABELS=OUTCOME_LABELS,
+    OUTCOMES_BACK=OUTCOMES_BACK, OUTCOMES_PUBLISHED=OUTCOMES_PUBLISHED,
+    OUTCOMES_ARCHIVED=OUTCOMES_ARCHIVED, KEEPS_ATTEMPT_OPEN=KEEPS_ATTEMPT_OPEN,
     effective_status=effective_status, open_submission=open_submission,
 )
 
@@ -134,6 +138,13 @@ async def auth_redirect(request: Request, exc: HTTPException):
             status_code=exc.status_code,
         )
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+
+def _append_milestone(existing: str | None, outcome: str) -> str:
+    """A revision round recorded on the attempt it belongs to, without closing
+    it: the paper is still at that venue and the clock is still running."""
+    line = f"{utcnow():%Y-%m-%d}: {OUTCOME_LABELS.get(outcome, outcome)}"
+    return "\n".join(filter(None, [existing, line]))
 
 
 def _project_or_404(acc: WorkspaceAccess, pid: int) -> Project:
@@ -298,7 +309,18 @@ async def move_project(slug: str, request: Request,
                     when = datetime.strptime(body["submitted_at"], "%Y-%m-%d")
                 except ValueError:
                     pass
-            if venue:
+            # Coming back from a revision is not a new attempt: it is the same
+            # manuscript returning to the same editor. Opening a second row here
+            # would leave the first one pending forever, shadowing every later
+            # outcome — which is exactly the bug this branch exists to avoid.
+            reopened = open_submission(p)
+            if reopened and (not venue or venue.lower() == reopened.venue.lower()):
+                reopened.notes = _append_milestone(reopened.notes, "resubmitted")
+                log_event(db, p, acc.user, "submission_opened",
+                          payload=json.dumps({"venue": reopened.venue,
+                                              "attempt": reopened.attempt,
+                                              "resubmission": True}))
+            elif venue:
                 s = Submission(project_id=p.id, venue=venue,
                                attempt=len(p.submissions) + 1,
                                submitted_at=when, outcome="pending")
@@ -310,12 +332,18 @@ async def move_project(slug: str, request: Request,
             outcome = body.get("outcome")
             s = open_submission(p)
             if s and outcome in SUBMISSION_OUTCOMES and outcome != "pending":
-                s.outcome = outcome
-                s.outcome_at = utcnow()
+                if outcome in KEEPS_ATTEMPT_OPEN:
+                    # Still at that venue, clock still running. Recorded as a
+                    # milestone on the attempt rather than as its end.
+                    s.notes = _append_milestone(s.notes, outcome)
+                else:
+                    s.outcome = outcome
+                    s.outcome_at = utcnow()
                 log_event(db, p, acc.user, "submission_outcome",
                           payload=json.dumps({"venue": s.venue,
                                               "outcome": outcome,
-                                              "attempt": s.attempt}))
+                                              "attempt": s.attempt,
+                                              "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
 
         note = (body.get("note") or "").strip()
         if note:
@@ -541,11 +569,15 @@ def sub_outcome(slug: str, pid: int, sid: int, outcome: str = Form(...),
     s = db.query(Submission).filter(Submission.id == sid,
                                     Submission.project_id == p.id).first()
     if s and outcome in SUBMISSION_OUTCOMES:
-        s.outcome = outcome
-        s.outcome_at = utcnow() if outcome != "pending" else None
+        if outcome in KEEPS_ATTEMPT_OPEN:
+            s.notes = _append_milestone(s.notes, outcome)
+        else:
+            s.outcome = outcome
+            s.outcome_at = utcnow() if outcome != "pending" else None
         log_event(db, p, acc.user, "submission_outcome",
                   payload=json.dumps({"venue": s.venue, "outcome": outcome,
-                                      "attempt": s.attempt}))
+                                      "attempt": s.attempt,
+                                      "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
         db.commit()
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 

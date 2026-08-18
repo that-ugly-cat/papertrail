@@ -104,13 +104,21 @@
 
     <div id="submitdlg-outcome">
       <label>What happened
-        <select name="outcome" id="submitdlg-outcome-select">
-          {% for o in SUBMISSION_OUTCOMES if o != 'pending' %}
-          <option value="{{ o }}">{{ OUTCOME_LABELS[o] }}</option>
-          {% endfor %}
-        </select>
+        <select name="outcome" id="submitdlg-outcome-select"></select>
       </label>
+      <p class="muted small" id="submitdlg-hint"></p>
     </div>
+
+    {# The option set depends on the direction of the move, so it is built in JS
+       from these three lists rather than rendered once. #}
+    <script type="application/json" id="outcome-sets">
+      {{ {"back": OUTCOMES_BACK,
+          "published": OUTCOMES_PUBLISHED,
+          "archived": OUTCOMES_ARCHIVED,
+          "labels": OUTCOME_LABELS,
+          "keeps_open": KEEPS_ATTEMPT_OPEN|list,
+          "order": STATUSES} | tojson }}
+    </script>
 
     <label>Note <span class="muted small">(optional, kept on the project)</span>
       <textarea name="note" id="submitdlg-note" rows="3"
@@ -132,6 +140,6 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/kanban.js?v=3"></script>
+<script src="/static/js/kanban.js?v=4"></script>
 <script src="/static/js/projectmodal.js?v=1"></script>
 {% endblock %}

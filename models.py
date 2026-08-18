@@ -80,6 +80,34 @@ OUTCOME_LABELS = {
     "withdrawn":           "withdrawn",
 }
 
+# Leaving `submitted` leftwards and rightwards are different events, so they are
+# asked different questions. Going left the paper came back to you; going right
+# it moved on. Offering the full list in both directions invites the wrong
+# answer — "accepted" has no business being on the way back to Writing up.
+OUTCOMES_BACK = ["major_revision", "minor_revision", "reject_after_review",
+                 "desk_reject", "withdrawn"]
+OUTCOMES_PUBLISHED = ["accept"]
+OUTCOMES_ARCHIVED = ["withdrawn", "reject_after_review", "desk_reject"]
+
+# A revision request does NOT end the attempt: the manuscript is still at that
+# venue, the clock is still running, and the next step is a resubmission to the
+# same editor. Closing it here would restart the count and lose how long the
+# venue actually held the paper — precisely the number this tool exists for.
+KEEPS_ATTEMPT_OPEN = {"major_revision", "minor_revision"}
+
+
+def outcomes_for(from_status: str, to_status: str) -> list[str]:
+    """Which outcomes make sense for this particular move out of `submitted`."""
+    if to_status == "published":
+        return OUTCOMES_PUBLISHED
+    if to_status == "archived":
+        return OUTCOMES_ARCHIVED
+    try:
+        going_back = STATUSES.index(to_status) < STATUSES.index(from_status)
+    except ValueError:
+        going_back = True
+    return OUTCOMES_BACK if going_back else OUTCOMES_PUBLISHED
+
 LINK_KINDS = ["wiki", "file", "grant", "lssr", "doi", "url", "repo"]
 
 EVENT_TYPES = ["created", "status_change", "note_added", "submission_opened",
@@ -398,9 +426,14 @@ def effective_status(project: Project) -> dict:
     else:
         s = open_submission(project)
         if s:
-            label = "Under review"
+            # An attempt still open while the project sits outside `submitted`
+            # means the paper is at that venue but back in the authors' hands:
+            # a revision round. Same fact, different word, and the day count
+            # keeps running because the venue still has it.
+            back_with_authors = declared not in ("submitted", "ready")
+            label = "In revision" if back_with_authors else "Under review"
             detail = f"{s.venue} · {s.days_open}d"
-            diverges = declared not in ("submitted", "ready")
+            diverges = declared in ("published", "archived")
         else:
             last = last_submission(project)
             if last and last.outcome == "accept":

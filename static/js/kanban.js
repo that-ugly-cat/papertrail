@@ -42,16 +42,56 @@
     }) || null;
   }
 
+  const SETS = (() => {
+    const el = document.getElementById('outcome-sets');
+    return el ? JSON.parse(el.textContent) : null;
+  })();
+
+  /* Leaving `submitted` is two different events depending on which way the card
+     went. Left: the paper came back — rejections and revision requests. Right to
+     Published: it was accepted, and nothing else. Right to Archived: it was
+     given up on. Offering all seven outcomes everywhere invites the wrong one. */
+  function outcomesFor(toStatus, fromStatus) {
+    if (!SETS) return [];
+    if (toStatus === 'published') return SETS.published;
+    if (toStatus === 'archived') return SETS.archived;
+    return SETS.order.indexOf(toStatus) < SETS.order.indexOf(fromStatus)
+      ? SETS.back : SETS.published;
+  }
+
   /* Resolves to the extra fields for the move, or null if the user cancelled. */
-  function askAboutSubmission(direction, title) {
+  function askAboutSubmission(direction, title, toStatus, fromStatus) {
     if (!dlg) return Promise.resolve({});
     const goingIn = direction === 'in';
     dlg.querySelector('#submitdlg-title').textContent =
-      goingIn ? 'Sent out for review' : 'Back from review';
+      goingIn ? 'Sent out for review'
+              : (toStatus === 'published' ? 'Accepted'
+                 : toStatus === 'archived' ? 'Giving up on it'
+                 : 'Back from review');
     dlg.querySelector('#submitdlg-sub').textContent = title;
     dlg.querySelector('#submitdlg-venue').style.display = goingIn ? '' : 'none';
     dlg.querySelector('#submitdlg-outcome').style.display = goingIn ? 'none' : '';
     dlg.querySelector('#submitdlg-note').value = '';
+
+    if (!goingIn) {
+      const sel = dlg.querySelector('#submitdlg-outcome-select');
+      sel.innerHTML = '';
+      for (const o of outcomesFor(toStatus, fromStatus)) {
+        const opt = document.createElement('option');
+        opt.value = o;
+        opt.textContent = SETS.labels[o] || o;
+        sel.appendChild(opt);
+      }
+      const hint = dlg.querySelector('#submitdlg-hint');
+      const explain = () => {
+        hint.textContent = SETS.keeps_open.includes(sel.value)
+          ? 'The attempt stays open: the paper is still at that venue and the '
+            + 'day count keeps running.'
+          : 'This closes the attempt at that venue.';
+      };
+      sel.onchange = explain;
+      explain();
+    }
     if (goingIn) {
       dlg.querySelector('#submitdlg-venue-input').value = '';
       dlg.querySelector('#submitdlg-date').value =
@@ -144,7 +184,8 @@
           (status === 'submitted' || fromStatus === 'submitted')) {
         extra = await askAboutSubmission(
           status === 'submitted' ? 'in' : 'out',
-          card.querySelector('.pcard-title').textContent.trim());
+          card.querySelector('.pcard-title').textContent.trim(),
+          status, fromStatus);
         if (extra === null) { rollback(false); return; }   /* cancelled */
       }
 
