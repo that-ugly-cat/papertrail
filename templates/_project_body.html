@@ -1,6 +1,16 @@
 {# Shared by the full page and the board modal: the card must stay a real
    URL (shareable, refreshable, back-button-able) while also opening in
    place on the board. #}
+{# Journal was a `select` in Notion; here it is free text with the known values
+   offered, so a new venue stays typeable but an existing one gets picked
+   instead of respelled. Same for people, who are a real table. #}
+<datalist id="vocab-venues">
+  {% for v in venues %}<option value="{{ v }}">{% endfor %}
+</datalist>
+<datalist id="vocab-people">
+  {% for n in people %}<option value="{{ n }}">{% endfor %}
+</datalist>
+
 <p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
 
 <div class="page-head">
@@ -41,7 +51,8 @@
         </label>
         <div class="row2">
           <label>Journal
-            <input name="journal" value="{{ p.journal or '' }}">
+            <input name="journal" value="{{ p.journal or '' }}"
+                   list="vocab-venues" autocomplete="off">
           </label>
           <label>Year
             <input name="pub_year" value="{{ p.pub_year or '' }}" inputmode="numeric">
@@ -109,7 +120,8 @@
       </ul>
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/authors" class="inline-form">
-        <input name="name" placeholder="Name" required>
+        <input name="name" placeholder="Name" required
+               list="vocab-people" autocomplete="off">
         <select name="role">
           {% for r in AUTHOR_ROLES %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
         </select>
@@ -146,7 +158,8 @@
       {% endfor %}
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions" class="inline-form">
-        <input name="venue" placeholder="Journal" required>
+        <input name="venue" placeholder="Journal" required
+               list="vocab-venues" autocomplete="off">
         <input name="submitted_at" type="date">
         <button class="btn btn-ghost" type="submit">Open</button>
       </form>

@@ -437,6 +437,52 @@ def log_event(db, project: Project, user: User | None, type_: str, *,
     return ev
 
 
+# ── controlled vocabularies ───────────────────────────────────────────────────
+#
+# Journal was a `select` in Notion — a closed list — and became free text here.
+# That is a regression, and it shows up as statistics fragmenting across
+# spellings: "heliyon" and "Helyon" are one journal that would answer the
+# "how long does this venue take" question twice, each time wrongly. The fix is
+# not validation (a genuinely new venue must always be typeable) but a vocabulary
+# offered for picking, plus a snap to an existing spelling when the difference is
+# only case or padding.
+
+def known_venues(db, workspace) -> list[str]:
+    """Every venue already used in this workspace, journals and submissions."""
+    rows = (db.query(Submission.venue)
+              .join(Project, Project.id == Submission.project_id)
+              .filter(Project.workspace_id == workspace.id).all())
+    journals = (db.query(Project.journal)
+                  .filter(Project.workspace_id == workspace.id).all())
+    seen = {v for (v,) in rows if v and v != "(unknown)"}
+    seen |= {j for (j,) in journals if j}
+    return sorted(seen, key=str.lower)
+
+
+def known_people(db) -> list[str]:
+    """The people registry, most-used first so the common names are on top."""
+    return [p.name for p in
+            sorted(db.query(Person).all(),
+                   key=lambda p: (-len(p.authorships), p.name.lower()))]
+
+
+def snap(value: str | None, vocabulary: list[str]) -> str | None:
+    """
+    Fold a typed value onto an existing one when they differ only in case or
+    surrounding space. Anything genuinely new passes through untouched: the
+    vocabulary guides, it does not gate.
+    """
+    if not value:
+        return None
+    v = " ".join(value.split())
+    if not v:
+        return None
+    for known in vocabulary:
+        if known.lower() == v.lower():
+            return known
+    return v
+
+
 def slugify(value: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return s or secrets.token_hex(4)

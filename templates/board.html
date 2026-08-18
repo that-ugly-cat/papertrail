@@ -95,7 +95,7 @@
                list="known-venues" placeholder="e.g. Nature Human Behaviour">
       </label>
       <datalist id="known-venues">
-        {% for v in known_venues %}<option value="{{ v }}">{% endfor %}
+        {% for v in venues %}<option value="{{ v }}">{% endfor %}
       </datalist>
       <label>Sent on
         <input type="date" name="submitted_at" id="submitdlg-date">
@@ -132,6 +132,6 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/kanban.js?v=2"></script>
+<script src="/static/js/kanban.js?v=3"></script>
 <script src="/static/js/projectmodal.js?v=1"></script>
 {% endblock %}

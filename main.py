@@ -32,8 +32,9 @@ from models import (
     AUTHOR_ROLES, ApiKey, LINK_KINDS, OUTCOME_LABELS, ROLES, STATUSES, STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, effective_status, get_db,
-    get_or_create_person, init_db, is_dormant, last_event_at, log_event,
-    open_submission, slugify, user_workspaces, utcnow,
+    get_or_create_person, init_db, is_dormant, known_people, known_venues,
+    last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
+    utcnow,
 )
 
 from mcp_app import mcp  # noqa: E402
@@ -230,15 +231,7 @@ def board(request: Request, slug: str, person: int | None = None,
                 .order_by(Person.name)
                 .all())
 
-    # Venues already used in this workspace, to autocomplete the submit dialog.
-    # After the Notion import that is a couple of hundred real journal names, so
-    # the venue gets picked rather than retyped (and misspelled) every time.
-    known_venues = sorted({
-        s.venue for s in db.query(Submission)
-                            .join(Project, Project.id == Submission.project_id)
-                            .filter(Project.workspace_id == ws.id).all()
-        if s.venue and s.venue != "(unknown)"
-    } | {p.journal for p in projects if p.journal}, key=str.lower)
+    venues = known_venues(db, ws)
 
     return templates.TemplateResponse(
         request, "board.html",
@@ -246,7 +239,7 @@ def board(request: Request, slug: str, person: int | None = None,
          "can_write": acc.can_write, "can_admin": acc.can_admin,
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant,
-         "dormant_days": ws.dormant_after_days, "known_venues": known_venues,
+         "dormant_days": ws.dormant_after_days, "venues": venues,
          "is_dormant": lambda p: is_dormant(p, ws.dormant_after_days)},
     )
 
@@ -298,7 +291,7 @@ async def move_project(slug: str, request: Request,
                   from_status=old_status, to_status=new_status)
 
         if new_status == "submitted":
-            venue = (body.get("venue") or "").strip()
+            venue = snap(body.get("venue"), known_venues(db, acc.workspace)) or ""
             when = utcnow()
             if body.get("submitted_at"):
                 try:
@@ -366,6 +359,8 @@ def project_page(request: Request, slug: str, pid: int, partial: int = 0,
         {"user": acc.user, "ws": acc.workspace,
          "role": acc.role, "can_write": acc.can_write, "p": p,
          "events": events, "notes": notes, "subs": subs,
+         "venues": known_venues(acc.db, acc.workspace),
+         "people": known_people(acc.db),
          "eff": effective_status(p),
          "dormant": is_dormant(p, acc.workspace.dormant_after_days),
          "last_event": last_event_at(p)},
@@ -410,7 +405,7 @@ def edit_project(slug: str, pid: int,
     changed = []
     for field, value in (("title", title.strip()),
                          ("final_title", final_title.strip() or None),
-                         ("journal", journal.strip() or None),
+                         ("journal", snap(journal, known_venues(db, acc.workspace))),
                          ("doi", doi.strip() or None),
                          ("summary", summary.strip() or None)):
         if getattr(p, field) != value:
@@ -523,7 +518,8 @@ def open_sub(slug: str, pid: int, venue: str = Form(...),
             when = datetime.strptime(submitted_at.strip(), "%Y-%m-%d")
         except ValueError:
             pass
-    s = Submission(project_id=p.id, venue=venue.strip(),
+    s = Submission(project_id=p.id,
+                   venue=snap(venue, known_venues(db, acc.workspace)),
                    attempt=len(p.submissions) + 1, submitted_at=when,
                    outcome="pending")
     db.add(s)

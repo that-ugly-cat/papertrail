@@ -24,8 +24,8 @@ import auth
 from models import (
     LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
     Note, Project, SessionLocal, Submission, effective_status,
-    get_or_create_person, is_dormant, last_event_at, log_event,
-    user_workspaces, utcnow,
+    get_or_create_person, is_dormant, known_people, known_venues,
+    last_event_at, log_event, snap, user_workspaces, utcnow,
 )
 
 mcp = MCPServer(
@@ -199,6 +199,26 @@ def search_projects(query: str, workspace: str = "", limit: int = 30) -> dict:
 
 
 @mcp.tool()
+def vocabularies(workspace: str) -> dict:
+    """
+    The venues and people already known in a workspace.
+
+    Read this before recording a submission or adding an author: reusing an
+    existing spelling keeps the per-venue statistics from fragmenting, and stops
+    the same person appearing twice. New values are still allowed — this is a
+    vocabulary, not a whitelist.
+    """
+    db = SessionLocal()
+    try:
+        ws, _role = auth.mcp_workspace(db, workspace)
+        return {"venues": known_venues(db, ws), "people": known_people(db)}
+    except (LookupError, PermissionError) as e:
+        return _fail(str(e))
+    finally:
+        db.close()
+
+
+@mcp.tool()
 def add_note(workspace: str, project_id: int, body: str) -> dict:
     """Append a note to a project. Notes are the record of the thinking; this is
     the replacement for the Notion comments."""
@@ -289,7 +309,11 @@ def open_submission(workspace: str, project_id: int, venue: str,
                 when = datetime.strptime(submitted_at.strip(), "%Y-%m-%d")
             except ValueError:
                 return _fail("submitted_at must be YYYY-MM-DD")
-        s = Submission(project_id=p.id, venue=venue.strip(),
+        # Snap onto a venue already used here, so the model coining
+        # "Nature Human Behavior" does not fork the stats for a journal already
+        # recorded as "Nature Human Behaviour".
+        s = Submission(project_id=p.id,
+                       venue=snap(venue, known_venues(db, ws)),
                        attempt=len(p.submissions) + 1, submitted_at=when,
                        outcome="pending")
         db.add(s)
