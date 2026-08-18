@@ -25,17 +25,17 @@ from sqlalchemy.orm import Session
 
 from auth import (
     WorkspaceAccess, check_api_key, create_token, get_current_user,
-    hash_password, require_admin, set_caller, touch_login, verify_password,
-    workspace_dep,
+    hash_password, project_access, require_admin, set_caller, touch_login,
+    verify_password, workspace_dep,
 )
 from models import (
-    AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS,
+    AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, ProjectWorkspace, LINK_KINDS, OUTCOME_LABELS,
     OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, OUTCOMES_REVISION,
     OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
     STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, canonical, effective_status,
-    get_db, has_role, role_for,
+    get_db, has_role, role_for, workspaces_of,
     get_or_create_person, init_db, is_dormant, known_people, known_venues,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
     utcnow,
@@ -151,11 +151,18 @@ def _append_milestone(existing: str | None, outcome: str) -> str:
     return "\n".join(filter(None, [existing, line]))
 
 
+def _projects_in(db: Session, ws: Workspace):
+    """Projects of a workspace: the ones that live here plus the ones shared in."""
+    return (db.query(Project)
+              .outerjoin(ProjectWorkspace,
+                         ProjectWorkspace.project_id == Project.id)
+              .filter((Project.workspace_id == ws.id)
+                      | (ProjectWorkspace.workspace_id == ws.id))
+              .distinct())
+
+
 def _project_or_404(acc: WorkspaceAccess, pid: int) -> Project:
-    p = (acc.db.query(Project)
-           .filter(Project.id == pid,
-                   Project.workspace_id == acc.workspace.id)
-           .first())
+    p = _projects_in(acc.db, acc.workspace).filter(Project.id == pid).first()
     if p is None:
         raise HTTPException(status_code=404, detail="Not found")
     return p
@@ -358,10 +365,8 @@ def board(request: Request, slug: str, person: int | None = None,
           q: str | None = None, dormant: int = 0,
           acc: WorkspaceAccess = Depends(workspace_dep("read"))):
     db, ws = acc.db, acc.workspace
-    projects = (db.query(Project)
-                  .filter(Project.workspace_id == ws.id)
-                  .order_by(Project.position, Project.id)
-                  .all())
+    projects = (_projects_in(db, ws)
+                .order_by(Project.position, Project.id).all())
 
     if person:
         projects = [p for p in projects
@@ -380,13 +385,11 @@ def board(request: Request, slug: str, person: int | None = None,
         columns.setdefault(p.status, []).append(p)
 
     # Everyone who authors something here, for the filter dropdown.
+    ids = [p.id for p in projects]
     people = (db.query(Person)
                 .join(Authorship, Authorship.person_id == Person.id)
-                .join(Project, Project.id == Authorship.project_id)
-                .filter(Project.workspace_id == ws.id)
-                .distinct()
-                .order_by(Person.name)
-                .all())
+                .filter(Authorship.project_id.in_(ids or [0]))
+                .distinct().order_by(Person.name).all())
 
     venues = known_venues(db, ws)
 
@@ -542,10 +545,15 @@ def project_page(request: Request, slug: str, pid: int, partial: int = 0,
     notes = sorted(p.notes, key=lambda n: n.ts or utcnow(), reverse=True)
     subs = sorted(p.submissions, key=lambda s: s.submitted_at or utcnow(),
                   reverse=True)
+    role = project_access(acc, p)
+    mine = {w.id for w in workspaces_of(p)}
     return templates.TemplateResponse(
         request, "_project_body.html" if partial else "project.html",
         {"user": acc.user, "ws": acc.workspace,
-         "role": acc.role, "can_write": acc.can_write, "p": p,
+         "role": role, "can_write": has_role(role, "write"), "p": p,
+         "project_ws": workspaces_of(p),
+         "ws_options": [(w, r) for w, r in user_workspaces(acc.db, acc.user)
+                        if r in ("write", "admin") or w.id in mine],
          "events": events, "notes": notes, "subs": subs,
          "venues": known_venues(acc.db, acc.workspace),
          "people": known_people(acc.db),
@@ -561,10 +569,8 @@ def hall_of_done(request: Request, slug: str,
     """Published work as cards, newest year first. Papers with no year land in
     a bucket of their own rather than being dropped."""
     db, ws = acc.db, acc.workspace
-    published = (db.query(Project)
-                   .filter(Project.workspace_id == ws.id,
-                           Project.status == "published")
-                   .all())
+    published = (_projects_in(db, ws)
+                 .filter(Project.status == "published").all())
     by_year: dict[int | None, list[Project]] = {}
     for p in published:
         by_year.setdefault(p.pub_year, []).append(p)
@@ -624,6 +630,57 @@ def edit_project(slug: str, pid: int,
                   payload=json.dumps({"fields": changed}))
     db.commit()
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
+
+
+@app.post("/w/{slug}/p/{pid}/workspaces")
+async def set_project_workspaces(slug: str, pid: int, request: Request,
+                                 acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """
+    Change which workspaces a project belongs to.
+
+    Three rules, and each one closes a hole. You need `write` on the project
+    itself, computed across the groups it already belongs to. You can only add
+    or remove groups where you have `write` — otherwise you could push a project
+    onto a board you have no business writing to, or quietly take it away from a
+    group you merely read. And it must end up somewhere: unchecking everything
+    is refused, because a project with no workspace has no access rule at all.
+    """
+    db = acc.db
+    p = _project_or_404(acc, pid)
+    if not has_role(project_access(acc, p), "write"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    form = await request.form()
+    wanted_slugs = set(form.getlist("workspaces"))
+    writable = {w.slug: w for w, r in user_workspaces(db, acc.user)
+                if r in ("write", "admin")}
+    current = {w.slug: w for w in workspaces_of(p)}
+
+    wanted = dict(current)
+    for s_ in wanted_slugs:
+        if s_ in writable:
+            wanted[s_] = writable[s_]
+    for s_ in list(wanted):
+        if s_ not in wanted_slugs and s_ in writable:
+            del wanted[s_]
+    if not wanted:
+        raise HTTPException(status_code=400,
+                            detail="A project must belong to a workspace")
+
+    # The home is the anchor of the URL, so it only moves when it has to.
+    if p.workspace.slug not in wanted:
+        p.workspace_id = next(iter(wanted.values())).id
+    db.query(ProjectWorkspace).filter(
+        ProjectWorkspace.project_id == p.id).delete()
+    for w in wanted.values():
+        db.add(ProjectWorkspace(project_id=p.id, workspace_id=w.id))
+    before, after = sorted(current), sorted(wanted)
+    if before != after:
+        log_event(db, p, acc.user, "field_changed",
+                  payload=json.dumps({"workspaces": {"from": before,
+                                                     "to": after}}))
+    db.commit()
+    return RedirectResponse(f"/w/{p.workspace.slug}/p/{p.id}", status_code=302)
 
 
 @app.post("/w/{slug}/p/{pid}/notes")

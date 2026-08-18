@@ -291,6 +291,8 @@ class Project(Base):
     created_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     workspace   = relationship("Workspace", back_populates="projects")
+    shares      = relationship("ProjectWorkspace", back_populates="project",
+                               cascade="all, delete-orphan")
     authorships = relationship("Authorship", back_populates="project",
                                cascade="all, delete-orphan")
     submissions = relationship("Submission", back_populates="project",
@@ -303,6 +305,30 @@ class Project(Base):
                                cascade="all, delete-orphan")
     deadlines   = relationship("Deadline", back_populates="project",
                                cascade="all, delete-orphan")
+
+
+class ProjectWorkspace(Base):
+    """
+    A project can belong to more than one group.
+
+    `Project.workspace_id` stays as the **home**: the one in the URL, the anchor
+    that guarantees a project always lives somewhere. This table adds the others.
+    An interdepartmental paper is genuinely shared, not a copy in two places, so
+    there is one row in `projects` and several here.
+
+    Consequence, and it is the whole point: sharing a project into a workspace
+    gives that workspace's members access to it. That is why only someone with
+    `write` in a workspace can put a project into it.
+    """
+    __tablename__ = "project_workspaces"
+    __table_args__ = (UniqueConstraint("project_id", "workspace_id"),)
+    id           = Column(Integer, primary_key=True)
+    project_id   = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
+    created_at   = Column(DateTime, default=utcnow)
+
+    project   = relationship("Project", back_populates="shares")
+    workspace = relationship("Workspace")
 
 
 class Authorship(Base):
@@ -398,6 +424,33 @@ class Deadline(Base):
 
 
 # ── access helpers ────────────────────────────────────────────────────────────
+
+def workspaces_of(project) -> list:
+    """Every workspace the project belongs to, home first."""
+    out = [project.workspace] if project.workspace else []
+    for sh in project.shares:
+        if sh.workspace and sh.workspace.id not in {w.id for w in out}:
+            out.append(sh.workspace)
+    return out
+
+
+def role_on_project(db, user, project) -> str | None:
+    """
+    The caller's role on a project: the best they hold in any workspace the
+    project belongs to.
+
+    A shared paper is one object. Someone who can edit it through ITE can edit
+    it, full stop — refusing because they opened it from the DEH board would be
+    arbitrary, and would make the same button work or not depending on the route
+    taken to reach it.
+    """
+    best = None
+    for ws in workspaces_of(project):
+        r = role_for(db, user, ws)
+        if r and (best is None or ROLE_RANK[r] > ROLE_RANK[best]):
+            best = r
+    return best
+
 
 def role_for(db, user: User, workspace: Workspace) -> str | None:
     """The single source of truth for access. None means no access at all —
@@ -577,6 +630,10 @@ _MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN notion_id VARCHAR",
     "ALTER TABLE notes ADD COLUMN external_id VARCHAR",
     "ALTER TABLE projects ADD COLUMN output_type VARCHAR DEFAULT 'paper'",
+    # Backfill the sharing table from the home workspace, once. `INSERT OR
+    # IGNORE` plus the unique constraint makes re-running a no-op.
+    "INSERT OR IGNORE INTO project_workspaces (project_id, workspace_id) "
+    "SELECT id, workspace_id FROM projects",
     "ALTER TABLE api_keys ADD COLUMN last_used_at DATETIME",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",

@@ -111,6 +111,27 @@
   <div>
 
     <div class="card">
+      <h2>Workspaces</h2>
+      {% if can_write %}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/workspaces">
+        {% for w, role in ws_options %}
+        <label class="check ws-check">
+          <input type="checkbox" name="workspaces" value="{{ w.slug }}"
+                 {% if w.id in project_ws|map(attribute='id')|list %}checked{% endif %}
+                 {% if role not in ('write', 'admin') %}disabled title="You cannot change membership of a workspace you only read"{% endif %}>
+          {{ w.name }}
+        </label>
+        {% endfor %}
+        <button class="btn btn-ghost btn-sm" type="submit">Save</button>
+        <p class="muted small">Shared into a workspace means its members can see
+          and edit this project.</p>
+      </form>
+      {% else %}
+      <p class="small">{% for w in project_ws %}<span class="badge badge-ws">{{ w.name }}</span> {% endfor %}</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
       <h2>Authors</h2>
       <ul class="plain">
         {% for a in p.authorships %}

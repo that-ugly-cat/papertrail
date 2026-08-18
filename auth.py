@@ -20,7 +20,8 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from models import (
-    ApiKey, User, Workspace, has_role, role_for, get_db, utcnow,
+    ApiKey, User, Workspace, has_role, role_for,
+    role_on_project, get_db, utcnow,
 )
 
 SECRET_KEY  = os.environ["JWT_SECRET"]
@@ -135,6 +136,22 @@ def workspace_dep(minimum: str = "read"):
         return WorkspaceAccess(ws, role, user, db)
 
     return _dep
+
+
+def project_access(acc: "WorkspaceAccess", project) -> str:
+    """
+    The caller's role on a shared project: the best they hold across the
+    workspaces it belongs to, never less than the one they have here.
+
+    Without this a project shared into a workspace where the caller is only a
+    reader would become read-only for them, even when they are an admin of the
+    group that owns it — the same button working or not depending on which board
+    they came from.
+    """
+    best = role_on_project(acc.db, acc.user, project)
+    if best is None:
+        return acc.role
+    return best if has_role(best, acc.role) else acc.role
 
 
 def touch_login(db: Session, user: User) -> None:
