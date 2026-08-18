@@ -33,12 +33,16 @@ membri di quel workspace, senza passare dall'amministratore di sistema.
 
 ## Stato
 
-**Fase 1**, funzionante: login, workspace, membri e ruoli, progetti, board kanban
-con drag-and-drop e filtro per autore, event log, ciclo di submission nella sua
-forma minima (apri un tentativo, registra l'esito).
+**In uso reale** su [papertrail.borant.eu](https://papertrail.borant.eu) dal 18
+agosto 2026, con 136 progetti migrati da Notion.
 
-Non c'è ancora: import da Notion, deadline, statistiche sulle latenze per
-journal, layer MCP, collegamento a Grant Radar e LSSR.
+C'è: login e ruoli per workspace, progetti condivisibili fra gruppi, board kanban
+con drag-and-drop, ciclo di submission completo (tentativi, giri di revisione,
+transfer), vista «My work» trasversale, Hall of done per anno, cestino, layer MCP
+con 11 tool, audit read-only.
+
+Non c'è ancora: deadline, statistiche sulle latenze per journal in interfaccia,
+ricerca semantica sulle idee, collegamento a Grant Radar e LSSR.
 
 Dettagli architetturali e roadmap in `SPEC.md` (locale, non versionato).
 Installazione e deploy in `DEPLOY.md`.
