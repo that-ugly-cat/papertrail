@@ -376,7 +376,7 @@ def effective_status(project: Project) -> dict:
         s = open_submission(project)
         if s:
             label = "Under review"
-            detail = f"{s.venue} · {s.days_open} gg"
+            detail = f"{s.venue} · {s.days_open}d"
             diverges = declared not in ("submitted", "ready")
         else:
             last = last_submission(project)
@@ -385,7 +385,7 @@ def effective_status(project: Project) -> dict:
                 detail = last.venue
                 diverges = declared not in ("submitted", "ready", "published")
             elif last and last.outcome in ("desk_reject", "reject_after_review"):
-                detail = f"rimbalzato da {last.venue}"
+                detail = f"bounced from {last.venue}"
     return {"label": label, "detail": detail, "diverges": diverges}
 
 

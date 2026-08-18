@@ -216,7 +216,7 @@ def main():
         # ── submission, where the Notion status implied one ──────────────────
         outcome = OPENS_SUBMISSION.get(notion_status)
         if outcome and not p.submissions:
-            db.add(Submission(project_id=p.id, venue=p.journal or "(ignoto)",
+            db.add(Submission(project_id=p.id, venue=p.journal or "(unknown)",
                               attempt=1, submitted_at=edited or created or utcnow(),
                               outcome=outcome,
                               outcome_at=edited if outcome == "accept" else None,

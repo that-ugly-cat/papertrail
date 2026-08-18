@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Accedi — PaperTrail{% endblock %}
+{% block title %}Sign in — PaperTrail{% endblock %}
 {% block body %}
 <div class="login-wrap">
   <h1>PaperTrail</h1>
-  <p class="muted small">Dall'idea al paper pubblicato.</p>
+  <p class="muted small">From idea to published paper.</p>
   {% if error %}<div class="alert">{{ error }}</div>{% endif %}
   <form method="post" action="/login" class="card">
     <label>Email
@@ -12,7 +12,7 @@
     <label>Password
       <input type="password" name="password" required autocomplete="current-password">
     </label>
-    <button type="submit" class="btn btn-primary btn-block">Entra</button>
+    <button type="submit" class="btn btn-primary btn-block">Sign in</button>
   </form>
 </div>
 {% endblock %}

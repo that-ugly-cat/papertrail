@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Membri · {{ ws.name }} — PaperTrail{% endblock %}
+{% block title %}Members · {{ ws.name }} — PaperTrail{% endblock %}
 {% block body %}
 <p class="crumb"><a href="/w/{{ ws.slug }}">← {{ ws.name }}</a></p>
-<h1>Membri di {{ ws.name }}</h1>
+<h1>Members of {{ ws.name }}</h1>
 
 <div class="card">
   <p class="small muted">
-    Chi non compare qui non ha accesso: per quella persona il workspace non
-    esiste, e l'indirizzo risponde 404. Non c'è un livello "nessun accesso" da
-    impostare, si toglie la riga.
+    Anyone not listed here has no access: for them the workspace does not
+    exist, and the URL answers 404. There is no &ldquo;no access&rdquo; level to set &mdash;
+    you remove the row.
   </p>
   <table class="table">
-    <thead><tr><th>Persona</th><th>Ruolo</th><th></th></tr></thead>
+    <thead><tr><th>Person</th><th>Role</th><th></th></tr></thead>
     <tbody>
       {% for m, u in rows %}
       <tr>
@@ -25,7 +25,7 @@
         </td>
         <td class="ta-right">
           <form method="post" action="/w/{{ ws.slug }}/members/{{ m.id }}/remove" class="inline">
-            <button class="btn btn-ghost btn-sm" type="submit">Rimuovi</button>
+            <button class="btn btn-ghost btn-sm" type="submit">Remove</button>
           </form>
         </td>
       </tr>
@@ -35,7 +35,7 @@
 </div>
 
 <div class="card">
-  <h2>Aggiungi</h2>
+  <h2>Add</h2>
   {% if candidates %}
   <form method="post" action="/w/{{ ws.slug }}/members" class="inline-form">
     <select name="user_id">
@@ -44,11 +44,11 @@
     <select name="role">
       {% for r in ROLES %}<option value="{{ r }}" {% if r == 'write' %}selected{% endif %}>{{ r }}</option>{% endfor %}
     </select>
-    <button class="btn btn-primary" type="submit">Aggiungi</button>
+    <button class="btn btn-primary" type="submit">Add</button>
   </form>
   {% else %}
-  <p class="muted small">Tutti gli utenti registrati sono già membri.
-    {% if user.is_admin %}Creane altri da <a href="/admin">Admin</a>.{% endif %}</p>
+  <p class="muted small">Every registered user is already a member.
+    {% if user.is_admin %}Create more from <a href="/admin">Admin</a>.{% endif %}</p>
   {% endif %}
 </div>
 {% endblock %}

@@ -8,15 +8,15 @@
   <h1>{{ p.final_title or p.title }}</h1>
   <div class="badges">
     <span class="badge badge-status">{{ eff.label }}{% if eff.detail %} · {{ eff.detail }}{% endif %}</span>
-    {% if dormant %}<span class="badge badge-warn">dormiente</span>{% endif %}
+    {% if dormant %}<span class="badge badge-warn">dormant</span>{% endif %}
   </div>
 </div>
 
 {% if eff.diverges %}
 <div class="alert alert-warn small">
-  Lo stato dichiarato (<strong>{{ STATUS_LABELS[p.status] }}</strong>) non coincide
-  con quello che dicono le submission e il DOI. Non è stato sovrascritto niente:
-  correggi tu quello dei due che è sbagliato.
+  The declared status (<strong>{{ STATUS_LABELS[p.status] }}</strong>) disagrees
+  with what the submissions and the DOI say. Nothing has been overwritten:
+  correct whichever of the two is wrong.
 </div>
 {% endif %}
 
@@ -24,16 +24,16 @@
   <div>
 
     <div class="card">
-      <h2>Dettagli</h2>
+      <h2>Details</h2>
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}">
-        <label>Titolo di lavoro
+        <label>Working title
           <input name="title" value="{{ p.title }}" required>
         </label>
-        <label>Titolo finale
+        <label>Final title
           <input name="final_title" value="{{ p.final_title or '' }}">
         </label>
-        <label>Stato
+        <label>Status
           <select name="status">
             {% for st in STATUSES %}
             <option value="{{ st }}" {% if st == p.status %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>
@@ -44,7 +44,7 @@
           <label>Journal
             <input name="journal" value="{{ p.journal or '' }}">
           </label>
-          <label>Anno
+          <label>Year
             <input name="pub_year" value="{{ p.pub_year or '' }}" inputmode="numeric">
           </label>
         </div>
@@ -54,13 +54,13 @@
         <label>Summary
           <textarea name="summary" rows="4">{{ p.summary or '' }}</textarea>
         </label>
-        <button class="btn btn-primary" type="submit">Salva</button>
+        <button class="btn btn-primary" type="submit">Save</button>
       </form>
       {% else %}
       <dl class="ro">
-        <dt>Stato</dt><dd>{{ STATUS_LABELS[p.status] }}</dd>
+        <dt>Status</dt><dd>{{ STATUS_LABELS[p.status] }}</dd>
         {% if p.journal %}<dt>Journal</dt><dd>{{ p.journal }}</dd>{% endif %}
-        {% if p.pub_year %}<dt>Anno</dt><dd>{{ p.pub_year }}</dd>{% endif %}
+        {% if p.pub_year %}<dt>Year</dt><dd>{{ p.pub_year }}</dd>{% endif %}
         {% if p.doi %}<dt>DOI</dt><dd>{{ p.doi }}</dd>{% endif %}
         {% if p.summary %}<dt>Summary</dt><dd>{{ p.summary }}</dd>{% endif %}
       </dl>
@@ -68,24 +68,24 @@
     </div>
 
     <div class="card">
-      <h2>Note</h2>
+      <h2>Notes</h2>
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/notes">
-        <textarea name="body" rows="3" placeholder="Markdown accettato…" required></textarea>
-        <button class="btn btn-ghost" type="submit">Aggiungi nota</button>
+        <textarea name="body" rows="3" placeholder="Markdown accepted…" required></textarea>
+        <button class="btn btn-ghost" type="submit">Add note</button>
       </form>
       {% endif %}
       {% for n in notes %}
       <div class="note">
         <div class="note-head small muted">
-          {{ n.author_label or (n.user.name if n.user else 'ignoto') }} ·
+          {{ n.author_label or (n.user.name if n.user else 'unknown') }} ·
           {{ n.ts.strftime('%d/%m/%Y %H:%M') }}
           {% if n.source != 'web' %}<span class="badge">{{ n.source }}</span>{% endif %}
         </div>
         <div class="note-body">{{ n.body_md | markdown }}</div>
       </div>
       {% else %}
-      <p class="muted small">Nessuna nota.</p>
+      <p class="muted small">No notes yet.</p>
       {% endfor %}
     </div>
 
@@ -93,24 +93,24 @@
   <div>
 
     <div class="card">
-      <h2>Autori</h2>
+      <h2>Authors</h2>
       <ul class="plain">
         {% for a in p.authorships %}
         <li>
           <span>{{ a.person.name }} <span class="muted small">{{ a.role }}</span></span>
           {% if can_write %}
           <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/authors/{{ a.id }}/remove" class="inline">
-            <button class="linkbtn" type="submit" title="Rimuovi">×</button>
+            <button class="linkbtn" type="submit" title="Remove">×</button>
           </form>
           {% endif %}
         </li>
         {% else %}
-        <li class="muted small">Nessun autore.</li>
+        <li class="muted small">No authors yet.</li>
         {% endfor %}
       </ul>
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/authors" class="inline-form">
-        <input name="name" placeholder="Nome" required>
+        <input name="name" placeholder="Name" required>
         <select name="role">
           {% for r in AUTHOR_ROLES %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
         </select>
@@ -120,16 +120,16 @@
     </div>
 
     <div class="card">
-      <h2>Submission</h2>
+      <h2>Submissions</h2>
       {% for s in subs %}
       <div class="sub">
         <div>
           <strong>{{ s.venue }}</strong>
-          <span class="muted small">tentativo {{ s.attempt }} · {{ s.submitted_at.strftime('%d/%m/%Y') }}</span>
+          <span class="muted small">attempt {{ s.attempt }} · {{ s.submitted_at.strftime('%d/%m/%Y') }}</span>
         </div>
         <div class="small">
           {{ OUTCOME_LABELS[s.outcome] }}
-          {% if s.outcome == 'pending' %}<span class="muted">da {{ s.days_open }} giorni</span>{% endif %}
+          {% if s.outcome == 'pending' %}<span class="muted">for {{ s.days_open }} days</span>{% endif %}
         </div>
         {% if can_write %}
         <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions/{{ s.id }}/outcome" class="inline-form">
@@ -138,24 +138,24 @@
             <option value="{{ o }}" {% if o == s.outcome %}selected{% endif %}>{{ OUTCOME_LABELS[o] }}</option>
             {% endfor %}
           </select>
-          <button class="btn btn-ghost" type="submit">Registra</button>
+          <button class="btn btn-ghost" type="submit">Record</button>
         </form>
         {% endif %}
       </div>
       {% else %}
-      <p class="muted small">Mai sottomesso.</p>
+      <p class="muted small">Never submitted.</p>
       {% endfor %}
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions" class="inline-form">
         <input name="venue" placeholder="Journal" required>
         <input name="submitted_at" type="date">
-        <button class="btn btn-ghost" type="submit">Apri</button>
+        <button class="btn btn-ghost" type="submit">Open</button>
       </form>
       {% endif %}
     </div>
 
     <div class="card">
-      <h2>Collegamenti</h2>
+      <h2>Links</h2>
       <ul class="plain">
         {% for l in p.links %}
         <li>
@@ -166,12 +166,12 @@
           </span>
           {% if can_write %}
           <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/links/{{ l.id }}/remove" class="inline">
-            <button class="linkbtn" type="submit" title="Rimuovi">×</button>
+            <button class="linkbtn" type="submit" title="Remove">×</button>
           </form>
           {% endif %}
         </li>
         {% else %}
-        <li class="muted small">Nessun collegamento.</li>
+        <li class="muted small">No links yet.</li>
         {% endfor %}
       </ul>
       {% if can_write %}
@@ -180,15 +180,15 @@
           {% for k in LINK_KINDS %}<option value="{{ k }}">{{ k }}</option>{% endfor %}
         </select>
         <input name="target" placeholder="target" required>
-        <input name="label" placeholder="etichetta">
+        <input name="label" placeholder="label">
         <button class="btn btn-ghost" type="submit">+</button>
       </form>
       {% endif %}
     </div>
 
     <div class="card">
-      <h2>Storia</h2>
-      <p class="small muted">Ultimo evento:
+      <h2>History</h2>
+      <p class="small muted">Last event:
         {{ last_event.strftime('%d/%m/%Y') if last_event else '—' }}</p>
       <ul class="timeline">
         {% for e in events %}

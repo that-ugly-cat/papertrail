@@ -93,7 +93,7 @@ def login(request: Request, email: str = Form(...), password: str = Form(...),
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse(
             request, "login.html",
-            {"user": None, "error": "Credenziali non valide."},
+            {"user": None, "error": "Invalid credentials."},
             status_code=401,
         )
     touch_login(db, user)
@@ -163,13 +163,23 @@ def board(request: Request, slug: str, person: int | None = None,
                 .order_by(Person.name)
                 .all())
 
+    # Venues already used in this workspace, to autocomplete the submit dialog.
+    # After the Notion import that is a couple of hundred real journal names, so
+    # the venue gets picked rather than retyped (and misspelled) every time.
+    known_venues = sorted({
+        s.venue for s in db.query(Submission)
+                            .join(Project, Project.id == Submission.project_id)
+                            .filter(Project.workspace_id == ws.id).all()
+        if s.venue and s.venue != "(unknown)"
+    } | {p.journal for p in projects if p.journal}, key=str.lower)
+
     return templates.TemplateResponse(
         request, "board.html",
         {"user": acc.user, "ws": ws, "role": acc.role,
          "can_write": acc.can_write, "can_admin": acc.can_admin,
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant,
-         "dormant_days": ws.dormant_after_days,
+         "dormant_days": ws.dormant_after_days, "known_venues": known_venues,
          "is_dormant": lambda p: is_dormant(p, ws.dormant_after_days)},
     )
 
@@ -194,10 +204,18 @@ def create_project(slug: str, title: str = Form(...),
 async def move_project(slug: str, request: Request,
                        acc: WorkspaceAccess = Depends(workspace_dep("write"))):
     """
-    Drag-and-drop endpoint. Body: {project_id, status, order: [ids in column]}.
-    Writes a status_change event only when the column actually changed —
-    reordering inside a column is not a state transition and must not pollute
-    the event log, which is what dormancy and staleness read from.
+    Drag-and-drop endpoint.
+
+    Body: {project_id, status, order: [ids in column]} plus, when the move
+    crosses the `submitted` boundary, {venue, submitted_at, outcome, note}.
+
+    A status_change event is written only when the column actually changed:
+    reordering inside a column is not a transition and must not pollute the
+    event log, which is what dormancy and staleness are read from.
+
+    Crossing into `submitted` opens a Submission; crossing out of it records the
+    outcome on the open one. That is the moment the information exists — asking
+    for it later means never getting it.
     """
     db = acc.db
     body = await request.json()
@@ -211,6 +229,39 @@ async def move_project(slug: str, request: Request,
         p.status = new_status
         log_event(db, p, acc.user, "status_change",
                   from_status=old_status, to_status=new_status)
+
+        if new_status == "submitted":
+            venue = (body.get("venue") or "").strip()
+            when = utcnow()
+            if body.get("submitted_at"):
+                try:
+                    when = datetime.strptime(body["submitted_at"], "%Y-%m-%d")
+                except ValueError:
+                    pass
+            if venue:
+                s = Submission(project_id=p.id, venue=venue,
+                               attempt=len(p.submissions) + 1,
+                               submitted_at=when, outcome="pending")
+                db.add(s)
+                log_event(db, p, acc.user, "submission_opened",
+                          payload=json.dumps({"venue": venue,
+                                              "attempt": s.attempt}))
+        elif old_status == "submitted":
+            outcome = body.get("outcome")
+            s = open_submission(p)
+            if s and outcome in SUBMISSION_OUTCOMES and outcome != "pending":
+                s.outcome = outcome
+                s.outcome_at = utcnow()
+                log_event(db, p, acc.user, "submission_outcome",
+                          payload=json.dumps({"venue": s.venue,
+                                              "outcome": outcome,
+                                              "attempt": s.attempt}))
+
+        note = (body.get("note") or "").strip()
+        if note:
+            db.add(Note(project_id=p.id, user_id=acc.user.id, body_md=note,
+                        source="web", ts=utcnow()))
+            log_event(db, p, acc.user, "note_added")
 
     for idx, pid in enumerate(body.get("order", [])):
         row = (db.query(Project)
@@ -456,7 +507,7 @@ def change_member(slug: str, mid: int, role: str = Form(...),
                                 Membership.role == "admin").count())
             if admins <= 1:
                 raise HTTPException(status_code=400,
-                                    detail="Serve almeno un admin nel workspace")
+                                    detail="A workspace needs at least one admin")
         m.role = role
         db.commit()
     return RedirectResponse(f"/w/{slug}/members", status_code=302)
@@ -475,7 +526,7 @@ def remove_member(slug: str, mid: int,
                                 Membership.role == "admin").count())
             if admins <= 1:
                 raise HTTPException(status_code=400,
-                                    detail="Serve almeno un admin nel workspace")
+                                    detail="A workspace needs at least one admin")
         db.delete(m)
         db.commit()
     return RedirectResponse(f"/w/{slug}/members", status_code=302)
@@ -549,13 +600,13 @@ def change_password(request: Request, current: str = Form(...),
     if not verify_password(current, user.hashed_password):
         return templates.TemplateResponse(
         request, "profile.html",
-            {"user": user, "error": "Password attuale errata."},
+            {"user": user, "error": "Current password is wrong."},
             status_code=400,
         )
     user.hashed_password = hash_password(new)
     db.commit()
     return templates.TemplateResponse(
-        request, "profile.html", {"user": user, "ok": "Password aggiornata."})
+        request, "profile.html", {"user": user, "ok": "Password updated."})
 
 
 @app.get("/healthz")

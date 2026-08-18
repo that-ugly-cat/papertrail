@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Workspace — PaperTrail{% endblock %}
+{% block title %}Workspaces — PaperTrail{% endblock %}
 {% block body %}
 <div class="page-head">
-  <h1>Workspace</h1>
+  <h1>Workspaces</h1>
 </div>
 
 {% if not rows %}
 <div class="card">
-  <p class="muted">Non fai parte di nessun workspace.</p>
+  <p class="muted">You are not a member of any workspace.</p>
   {% if user.is_admin %}
-  <p class="small muted">Sei amministratore di sistema: puoi crearne uno da
-    <a href="/admin">Admin</a>. Essere admin non ti dà accesso ai contenuti
-    altrui, solo la facoltà di creare.</p>
+  <p class="small muted">You are a system admin: you can create one from
+    <a href="/admin">Admin</a>. Being an admin does not grant access to other
+    people&rsquo;s content, only the ability to create.</p>
   {% endif %}
 </div>
 {% endif %}
@@ -24,7 +24,7 @@
       <span class="pill pill-{{ role }}">{{ role }}</span>
     </div>
     {% if ws.description %}<p class="muted small">{{ ws.description }}</p>{% endif %}
-    <p class="small muted">{{ counts.get(ws.id, 0) }} progetti</p>
+    <p class="small muted">{{ counts.get(ws.id, 0) }} projects</p>
   </a>
   {% endfor %}
 </div>

@@ -10,25 +10,25 @@
   </div>
   <div class="board-actions">
     <span class="pill pill-{{ role }}">{{ role }}</span>
-    {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Membri</a>{% endif %}
-    {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">Nuovo progetto</button>{% endif %}
+    {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Members</a>{% endif %}
+    {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">New project</button>{% endif %}
   </div>
 </div>
 
 <form class="filters" method="get" action="/w/{{ ws.slug }}">
-  <input type="search" name="q" value="{{ q }}" placeholder="Cerca titolo o summary…">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search title or summary…">
   <select name="person">
-    <option value="">Tutti gli autori</option>
+    <option value="">All authors</option>
     {% for p in people %}
     <option value="{{ p.id }}" {% if sel_person == p.id %}selected{% endif %}>{{ p.name }}</option>
     {% endfor %}
   </select>
   <label class="check">
     <input type="checkbox" name="dormant" value="1" {% if dormant %}checked{% endif %}>
-    solo dormienti ({{ dormant_days }}gg)
+    dormant only ({{ dormant_days }}d)
   </label>
-  <button class="btn btn-ghost" type="submit">Filtra</button>
-  {% if q or sel_person or dormant %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Azzera</a>{% endif %}
+  <button class="btn btn-ghost" type="submit">Filter</button>
+  {% if q or sel_person or dormant %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
 </form>
 
 <div class="kanban" id="kanban" data-slug="{{ ws.slug }}" data-canwrite="{{ 1 if can_write else 0 }}">
@@ -50,9 +50,9 @@
           {% for a in p.authorships %}<span class="who">{{ a.person.name }}</span>{% endfor %}
         </div>
         <div class="pcard-badges">
-          {% if is_dormant(p) %}<span class="badge badge-warn">dormiente</span>{% endif %}
-          {% if eff.diverges %}<span class="badge badge-danger" title="Lo stato dichiarato non coincide con le submission">stato divergente</span>{% endif %}
-          {% if p.notes %}<span class="badge">{{ p.notes|length }} note</span>{% endif %}
+          {% if is_dormant(p) %}<span class="badge badge-warn">dormant</span>{% endif %}
+          {% if eff.diverges %}<span class="badge badge-danger" title="Declared status disagrees with the submission record">status mismatch</span>{% endif %}
+          {% if p.notes %}<span class="badge">{{ p.notes|length }} notes</span>{% endif %}
           {% if p.pub_year %}<span class="badge">{{ p.pub_year }}</span>{% endif %}
         </div>
       </article>
@@ -65,22 +65,64 @@
 {% if can_write %}
 <dialog id="newproj" class="modal">
   <form method="post" action="/w/{{ ws.slug }}/projects">
-    <h2>Nuovo progetto</h2>
-    <label>Titolo
+    <h2>New project</h2>
+    <label>Title
       <input name="title" required autofocus>
     </label>
-    <label>Stato iniziale
+    <label>Initial status
       <select name="status">
         {% for st in STATUSES %}<option value="{{ st }}" {% if st == 'idea' %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>{% endfor %}
       </select>
     </label>
     <div class="modal-actions">
-      <button type="button" class="btn btn-ghost" onclick="document.getElementById('newproj').close()">Annulla</button>
-      <button type="submit" class="btn btn-primary">Crea</button>
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('newproj').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Create</button>
+    </div>
+  </form>
+</dialog>
+
+{# Asked for whenever a card crosses the `submitted` boundary: this is the
+   moment the venue and the outcome are actually known. #}
+<dialog id="submitdlg" class="modal">
+  <form method="dialog" id="submitform">
+    <h2 id="submitdlg-title">Sent out</h2>
+    <p class="muted small" id="submitdlg-sub"></p>
+
+    <div id="submitdlg-venue">
+      <label>Journal / venue
+        <input name="venue" id="submitdlg-venue-input" autocomplete="off"
+               list="known-venues" placeholder="e.g. Nature Human Behaviour">
+      </label>
+      <datalist id="known-venues">
+        {% for v in known_venues %}<option value="{{ v }}">{% endfor %}
+      </datalist>
+      <label>Sent on
+        <input type="date" name="submitted_at" id="submitdlg-date">
+      </label>
+    </div>
+
+    <div id="submitdlg-outcome">
+      <label>What happened
+        <select name="outcome" id="submitdlg-outcome-select">
+          {% for o in SUBMISSION_OUTCOMES if o != 'pending' %}
+          <option value="{{ o }}">{{ OUTCOME_LABELS[o] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <label>Note <span class="muted small">(optional, kept on the project)</span>
+      <textarea name="note" id="submitdlg-note" rows="3"
+                placeholder="Editor's reason, next venue in mind, anything worth remembering…"></textarea>
+    </label>
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" id="submitdlg-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="submitdlg-ok">Save</button>
     </div>
   </form>
 </dialog>
 {% endif %}
 
 {% endblock %}
-{% block scripts %}<script src="/static/js/kanban.js?v=1"></script>{% endblock %}
+{% block scripts %}<script src="/static/js/kanban.js?v=2"></script>{% endblock %}

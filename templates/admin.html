@@ -1,37 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Admin — PaperTrail{% endblock %}
 {% block body %}
-<h1>Amministrazione</h1>
+<h1>Administration</h1>
 
 <div class="card">
-  <h2>Utenti</h2>
+  <h2>Users</h2>
   <table class="table">
-    <thead><tr><th>Nome</th><th>Email</th><th>Admin</th><th>Ultimo accesso</th></tr></thead>
+    <thead><tr><th>Name</th><th>Email</th><th>Admin</th><th>Last login</th></tr></thead>
     <tbody>
       {% for u in users %}
       <tr>
         <td>{{ u.name }}</td>
         <td class="muted">{{ u.email }}</td>
-        <td>{{ 'sì' if u.is_admin else '' }}</td>
+        <td>{{ 'yes' if u.is_admin else '' }}</td>
         <td class="muted small">{{ u.last_login.strftime('%d/%m/%Y') if u.last_login else '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <h3 class="small">Nuovo utente</h3>
+  <h3 class="small">New user</h3>
   <form method="post" action="/admin/users" class="inline-form">
-    <input name="name" placeholder="Nome" required>
+    <input name="name" placeholder="Name" required>
     <input name="email" type="email" placeholder="email" required>
     <input name="password" type="password" placeholder="password" required>
     <label class="check"><input type="checkbox" name="is_admin" value="1"> admin</label>
-    <button class="btn btn-primary" type="submit">Crea</button>
+    <button class="btn btn-primary" type="submit">Create</button>
   </form>
 </div>
 
 <div class="card">
-  <h2>Workspace</h2>
+  <h2>Workspaces</h2>
   <table class="table">
-    <thead><tr><th>Nome</th><th>Slug</th><th>Membri</th></tr></thead>
+    <thead><tr><th>Name</th><th>Slug</th><th>Members</th></tr></thead>
     <tbody>
       {% for ws in workspaces %}
       <tr>
@@ -42,14 +42,14 @@
       {% endfor %}
     </tbody>
   </table>
-  <h3 class="small">Nuovo workspace</h3>
-  <p class="small muted">Un workspace è un gruppo di ricerca. Chi lo crea ne
-    diventa admin, altrimenti resterebbe inaccessibile a chiunque.</p>
+  <h3 class="small">New workspace</h3>
+  <p class="small muted">A workspace is a research group. Whoever creates it becomes its
+    admin, otherwise it would be unreachable by anyone.</p>
   <form method="post" action="/admin/workspaces" class="inline-form">
-    <input name="name" placeholder="Nome (es. ITE)" required>
-    <input name="slug" placeholder="slug (opzionale)">
-    <input name="description" placeholder="descrizione">
-    <button class="btn btn-primary" type="submit">Crea</button>
+    <input name="name" placeholder="Name (e.g. ITE)" required>
+    <input name="slug" placeholder="slug (optional)">
+    <input name="description" placeholder="description">
+    <button class="btn btn-primary" type="submit">Create</button>
   </form>
 </div>
 {% endblock %}

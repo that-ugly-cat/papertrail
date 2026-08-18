@@ -44,22 +44,23 @@ from models import (  # noqa: E402
 # Order matters: the first pattern that matches an event clause wins, so the
 # more specific ones (resubmit, desk reject) come before the generic ones.
 ACTIONS = [
+    # Revision comes first on purpose. "review 1 submitted", "review 1 done",
+    # "review submitted 24.02" mean the response to the reviewers went back: a
+    # milestone inside the attempt that is already open, never a new submission.
+    # "to revise and resubmit" would otherwise be caught by `resubmit` below and
+    # would open a phantom attempt.
+    ("revision", r"\brevise and resubmit\b|\bmajor revision\b|\bminor revision\b"
+                 r"|\bto revise\b|\breviews? (?:received|back)\b|\bgot reviews?\b"
+                 r"|\breview\s*\d*\s*(?:submitted|done|sent|completed)\b"
+                 r"|\breview round\s*\d*\b"),
     ("resubmit", r"\bre-?submit(?:ted|ting)?\b"),
     ("desk_reject", r"\bdesk[- ]?reject(?:ed|ion)?\b"),
     ("reject", r"\breject(?:ed|ion|s)?\b|\bdeclin(?:ed|e)\b|\bnot? answer\b"),
     ("accept", r"\baccept(?:ed|ance)?\b"),
-    ("revision", r"\brevise and resubmit\b|\bmajor revision\b|\bminor revision\b"
-                 r"|\bto revise\b|\breviews? (?:received|back)\b|\bgot reviews?\b"),
     ("withdraw", r"\bwithdraw(?:n|ing)?\b"),
     ("in_review", r"\bin peer review\b|\bunder review\b|\bin review\b"),
     ("submit", r"\bsubmit(?:ted|ting)?\b|\bsumbitted\b|\bsent to\b"),
 ]
-
-# "review 1 submitted", "review submitted", "review 1 done" are Spit acting as a
-# reviewer for someone else's paper, not his own manuscript moving. Dropping
-# them prevents inventing submissions out of peer-review chores.
-REVIEWER_CHORE = re.compile(
-    r"\breview\s*\d*\s*(?:submitted|done|sent|completed)\b", re.I)
 
 DATE_RE = re.compile(r"\b(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\b")
 
@@ -146,7 +147,9 @@ def find_venue(clause: str, action: str) -> str | None:
     if v:
         return v
     for cand in VENUE_PAREN.findall(clause):
-        if re.match(r"\s*by", cand, re.I):
+        # "(by Simone)" names the sender, "(23.10.25)" is a date. Neither is a
+        # venue, and both sit exactly where a venue would.
+        if re.match(r"\s*by", cand, re.I) or DATE_RE.fullmatch(cand.strip()):
             continue
         v = clean_venue(cand)
         if v:
@@ -181,9 +184,6 @@ def classify(clause: str) -> str | None:
 
 def events_from_note(note: Note) -> list[dict]:
     body = " ".join(note.body_md.split())
-    if REVIEWER_CHORE.search(body) and not re.search(
-            r"\bsubmitted to\b|\brejected (?:by|from)\b", body, re.I):
-        return []
     out = []
     for clause in split_clauses(body):
         action = classify(clause)
@@ -309,7 +309,7 @@ def apply_from_csv(db, path: Path) -> int:
                 db.delete(s)
         for i, r in enumerate(sorted(rows, key=lambda x: int(x["tentativo"])), 1):
             venue = (r.get("venue_corretto") or "").strip() or \
-                    (r.get("venue_proposto") or "").strip() or "(ignoto)"
+                    (r.get("venue_proposto") or "").strip() or "(unknown)"
             sub = datetime.strptime(r["inviato"], "%Y-%m-%d") if r.get("inviato") else None
             out = datetime.strptime(r["esito_il"], "%Y-%m-%d") if r.get("esito_il") else None
             db.add(Submission(project_id=p.id, venue=venue, attempt=i,
@@ -414,7 +414,7 @@ def main():
                 db.delete(s)
         for a in row["attempts"]:
             db.add(Submission(
-                project_id=p.id, venue=a["venue"] or "(ignoto)",
+                project_id=p.id, venue=a["venue"] or "(unknown)",
                 attempt=a["attempt"],
                 submitted_at=a["submitted_at"] or a["outcome_at"] or utcnow(),
                 outcome=a["outcome"], outcome_at=a["outcome_at"],
