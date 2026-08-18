@@ -10,6 +10,7 @@
   </div>
   <div class="board-actions">
     <span class="pill pill-{{ role }}">{{ role }}</span>
+    <a class="btn btn-ghost" href="/w/{{ ws.slug }}/done">Hall of done</a>
     {% if can_admin %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}/members">Members</a>{% endif %}
     {% if can_write %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">New project</button>{% endif %}
   </div>
@@ -124,5 +125,13 @@
 </dialog>
 {% endif %}
 
+<dialog id="projdlg" class="modal modal-wide">
+  <button type="button" class="modal-close" id="projdlg-close" aria-label="Close">×</button>
+  <div id="projdlg-body"></div>
+</dialog>
+
 {% endblock %}
-{% block scripts %}<script src="/static/js/kanban.js?v=2"></script>{% endblock %}
+{% block scripts %}
+<script src="/static/js/kanban.js?v=2"></script>
+<script src="/static/js/projectmodal.js?v=1"></script>
+{% endblock %}

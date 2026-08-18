@@ -279,21 +279,55 @@ async def move_project(slug: str, request: Request,
 # ── project page ──────────────────────────────────────────────────────────────
 
 @app.get("/w/{slug}/p/{pid}", response_class=HTMLResponse)
-def project_page(request: Request, slug: str, pid: int,
+def project_page(request: Request, slug: str, pid: int, partial: int = 0,
                  acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """
+    One project, rendered two ways from one template.
+
+    `partial=1` returns just the body, which the board injects into a dialog.
+    The plain URL still serves the full page, so a card stays shareable,
+    refreshable and reachable with the back button — the thing a modal-only
+    implementation quietly takes away.
+    """
     p = _project_or_404(acc, pid)
     events = sorted(p.events, key=lambda e: e.ts or utcnow(), reverse=True)
     notes = sorted(p.notes, key=lambda n: n.ts or utcnow(), reverse=True)
     subs = sorted(p.submissions, key=lambda s: s.submitted_at or utcnow(),
                   reverse=True)
     return templates.TemplateResponse(
-        request, "project.html",
+        request, "_project_body.html" if partial else "project.html",
         {"user": acc.user, "ws": acc.workspace,
          "role": acc.role, "can_write": acc.can_write, "p": p,
          "events": events, "notes": notes, "subs": subs,
          "eff": effective_status(p),
          "dormant": is_dormant(p, acc.workspace.dormant_after_days),
          "last_event": last_event_at(p)},
+    )
+
+
+@app.get("/w/{slug}/done", response_class=HTMLResponse)
+def hall_of_done(request: Request, slug: str,
+                 acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """Published work as cards, newest year first. Papers with no year land in
+    a bucket of their own rather than being dropped."""
+    db, ws = acc.db, acc.workspace
+    published = (db.query(Project)
+                   .filter(Project.workspace_id == ws.id,
+                           Project.status == "published")
+                   .all())
+    by_year: dict[int | None, list[Project]] = {}
+    for p in published:
+        by_year.setdefault(p.pub_year, []).append(p)
+    for group in by_year.values():
+        group.sort(key=lambda x: (x.final_title or x.title).lower())
+    years = sorted((y for y in by_year if y), reverse=True)
+    if None in by_year:
+        years.append(None)
+    return templates.TemplateResponse(
+        request, "done.html",
+        {"user": acc.user, "ws": ws, "role": acc.role,
+         "can_admin": acc.can_admin, "by_year": by_year, "years": years,
+         "total": len(published)},
     )
 
 

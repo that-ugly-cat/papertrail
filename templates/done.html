@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Hall of done · {{ ws.name }} — PaperTrail{% endblock %}
+{% block main_class %}container wide{% endblock %}
+{% block body %}
+
+<div class="board-head">
+  <div>
+    <h1>Hall of done</h1>
+    <p class="muted small">{{ total }} published{% if years %} ·
+      {{ years|reject('none')|list|length }} years{% endif %}</p>
+  </div>
+  <div class="board-actions">
+    <a class="btn btn-ghost" href="/w/{{ ws.slug }}">Board</a>
+  </div>
+</div>
+
+{% if not total %}
+<div class="card"><p class="muted">Nothing published yet.</p></div>
+{% endif %}
+
+{% for year in years %}
+<section class="year">
+  <header class="year-head">
+    <h2>{{ year or 'Year unknown' }}</h2>
+    <span class="year-count">{{ by_year[year]|length }}</span>
+    <span class="year-rule"></span>
+  </header>
+  <div class="done-grid">
+    {% for p in by_year[year] %}
+    <article class="done-card">
+      <a class="done-title" href="/w/{{ ws.slug }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
+      {% if p.journal %}<div class="done-journal">{{ p.journal }}</div>{% endif %}
+      <div class="done-authors">
+        {% for a in p.authorships %}{{ a.person.name }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </div>
+      {% if p.doi %}
+      <a class="done-doi" href="{{ p.doi }}" target="_blank" rel="noopener">{{ p.doi | replace('https://doi.org/', '') }}</a>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+{% endblock %}
