@@ -36,12 +36,17 @@ CANONICAL = {
     "science": "Science",
     "scientific reports": "Scientific Reports",
     # Abbreviations Spit used in his own notes, expanded to the names the rest
-    # of the vocabulary uses. PHE is deliberately absent: it appears once, in a
-    # chain between BMJ Public Health and Health Policy and Planning, and could
-    # be more than one journal. Guessing it would be inventing.
+    # of the vocabulary already uses. Only the bare forms: AJOB Empirical
+    # Bioethics, NEJM Catalyst and the JMIR family are separate journals and
+    # must keep their own names.
     "eit": "Ethics and Information Technology",
     "ssm": "Social Science & Medicine",
     "pus": "Public Understanding of Science",
+    "phe": "Public Health Ethics",
+    "ajob": "American Journal of Bioethics",
+    "nejm": "New England Journal of Medicine",
+    "jmir": "Journal of Medical Internet Research",
+    "jmir infodemiology": "JMIR Infodemiology",
     # A stray preposition the venue extractor left attached.
     "by nature human behavior": "Nature Human Behaviour",
     "nature human behavior": "Nature Human Behaviour",
@@ -53,6 +58,15 @@ CANONICAL = {
 MISSING_ACCEPT = {
     47: ("Social theory and health", "2026-01-01"),
     54: ("Culturico", "2025-01-01"),
+}
+
+# "invoice sent to jole (bk)" — Jole is a person at the publisher, not a venue,
+# and it was read as the accepting journal. The DOI settles it:
+# 10.3389/ijph.2025.1608617 is the International Journal of Public Health, which
+# is also the attempt right before, sitting closed as `unknown`. So: drop the
+# phantom, and let the real attempt carry the acceptance.
+DROP_VENUE_CLOSE_PREVIOUS = {
+    59: ("JOLE", "International Journal of Public Health", "2025-05-15"),
 }
 
 
@@ -82,6 +96,20 @@ def main():
             if not any(x.outcome == "accept" for x in p.submissions):
                 adds.append((p, venue, when))
 
+    drops = []
+    for p in P:
+        if p.id in DROP_VENUE_CLOSE_PREVIOUS:
+            bad, real, when = DROP_VENUE_CLOSE_PREVIOUS[p.id]
+            ghost = next((s for s in p.submissions if s.venue == bad), None)
+            target = next((s for s in p.submissions
+                           if s.venue == real and s.outcome != "accept"), None)
+            if ghost:
+                drops.append((p, ghost, target, real, when))
+
+    for p, ghost, target, real, when in drops:
+        print(f"  drop    sub {ghost.id:3d}  {ghost.venue!r} non e' un venue; "
+              f"accettazione spostata su {real}")
+
     print(f"{len(renames)} venue da uniformare, {len(jfix)} campi journal, "
           f"{len(adds)} accettazioni mancanti\n")
     for s, old, new in renames:
@@ -100,6 +128,18 @@ def main():
         s.venue = new
     for p, old, new in jfix:
         p.journal = new
+    for p, ghost, target, real, when in drops:
+        if target:
+            target.outcome = "accept"
+            target.outcome_at = datetime.fromisoformat(when)
+            target.notes = "\n".join(filter(None, [
+                target.notes,
+                "[accettazione: 'invoice sent to jole' — Jole e' un contatto "
+                "dell'editore, non una rivista; il DOI conferma questo venue]"]))
+        db.delete(ghost)
+        log_event(db, p, None, "submission_outcome",
+                  payload='{"outcome": "accept", "source": "audit:jole"}')
+
     for p, venue, when in adds:
         n = len(p.submissions) + 1
         db.add(Submission(project_id=p.id, venue=venue, attempt=n,
