@@ -226,25 +226,13 @@ def personal_board(request: Request, q: str | None = None, dormant: int = 0,
     from a workspace where you only have `read` cannot be dragged.
     """
     scopes = user_workspaces(db, user)
-    allowed = {ws.id: (ws, role) for ws, role in scopes}
+    projects, allowed = _my_projects(db, user)
     if not allowed:
         return templates.TemplateResponse(
             request, "personal.html",
             {"user": user, "columns": {s: [] for s in STATUSES}, "total": 0,
              "q": q or "", "dormant": dormant, "scopes": [], "ws_filter": "",
              "venues": [], "role_of": {}, "is_dormant": lambda p: False})
-
-    # The caller's Person: linked to the account when it exists, otherwise
-    # matched on the canonical name, because most authorships came from Notion
-    # before anyone had an account.
-    me = (db.query(Person).filter(Person.user_id == user.id).first()
-          or db.query(Person)
-               .filter(Person.canonical_name == canonical(user.name)).first())
-    if me is None:
-        projects = []
-    else:
-        projects = [a.project for a in me.authorships
-                    if a.project and a.project.workspace_id in allowed]
 
     if ws_filter:
         projects = [p for p in projects
@@ -276,6 +264,48 @@ def personal_board(request: Request, q: str | None = None, dormant: int = 0,
          "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
          "is_dormant": lambda p: is_dormant(
              p, allowed[p.workspace_id][0].dormant_after_days)},
+    )
+
+
+def _my_projects(db: Session, user: User):
+    """(projects authored by the caller, {ws_id: (workspace, role)}).
+
+    Shared by the personal board and the personal hall so the two cannot
+    disagree about what counts as yours.
+    """
+    allowed = {ws.id: (ws, role) for ws, role in user_workspaces(db, user)}
+    if not allowed:
+        return [], allowed
+    me = (db.query(Person).filter(Person.user_id == user.id).first()
+          or db.query(Person)
+               .filter(Person.canonical_name == canonical(user.name)).first())
+    if me is None:
+        return [], allowed
+    return ([a.project for a in me.authorships
+             if a.project and a.project.workspace_id in allowed], allowed)
+
+
+@app.get("/me/done", response_class=HTMLResponse)
+def personal_done(request: Request, user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """Your published work, by year, across every workspace you belong to."""
+    projects, allowed = _my_projects(db, user)
+    published = [p for p in projects if p.status == "published"]
+    by_year: dict[int | None, list[Project]] = {}
+    for p in published:
+        by_year.setdefault(p.pub_year, []).append(p)
+    for group in by_year.values():
+        group.sort(key=lambda x: (x.final_title or x.title).lower())
+    years = sorted((y for y in by_year if y), reverse=True)
+    if None in by_year:
+        years.append(None)
+    return templates.TemplateResponse(
+        request, "personal_done.html",
+        {"user": user, "by_year": by_year, "years": years,
+         "total": len(published), "show_ws": True,
+         "scopes": user_workspaces(db, user),
+         "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in published},
+         "name_of": {p.id: allowed[p.workspace_id][0].name for p in published}},
     )
 
 
@@ -503,7 +533,8 @@ def hall_of_done(request: Request, slug: str,
         request, "done.html",
         {"user": acc.user, "ws": ws, "role": acc.role,
          "can_admin": acc.can_admin, "by_year": by_year, "years": years,
-         "total": len(published)},
+         "total": len(published), "show_ws": False,
+         "slug_of": {p.id: ws.slug for p in published}},
     )
 
 

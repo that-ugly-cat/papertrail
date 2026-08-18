@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}My hall of done — PaperTrail{% endblock %}
+{% block main_class %}container wide{% endblock %}
+{% block body %}
+
+<div class="board-head">
+  <div>
+    <h1>My hall of done</h1>
+    <p class="muted small">{{ total }} published{% if years %} ·
+      {{ years|reject('none')|list|length }} years{% endif %} · everything you
+      are an author on, across {{ scopes|length }}
+      workspace{{ '' if scopes|length == 1 else 's' }}</p>
+  </div>
+  <div class="board-actions">
+    <a class="btn btn-ghost" href="/me">My work</a>
+  </div>
+</div>
+
+{% if not total %}
+<div class="card"><p class="muted">Nothing published yet under your name.</p></div>
+{% endif %}
+
+{% include "_done_grid.html" %}
+
+{% endblock %}
