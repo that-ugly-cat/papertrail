@@ -30,6 +30,7 @@
     <article class="done-card">
       <a class="done-title" href="/w/{{ ws.slug }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
       {% if p.journal %}<div class="done-journal">{{ p.journal }}</div>{% endif %}
+      {% if p.output_type and p.output_type != 'paper' %}<span class="badge badge-type">{{ OUTPUT_TYPE_LABELS[p.output_type] }}</span>{% endif %}
       <div class="done-authors">
         {% for a in p.authorships %}{{ a.person.name }}{% if not loop.last %} · {% endif %}{% endfor %}
       </div>

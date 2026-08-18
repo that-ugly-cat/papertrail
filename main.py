@@ -31,7 +31,7 @@ from auth import (
 from models import (
     AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS,
     OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, OUTCOMES_REVISION,
-    ROLES, STATUSES,
+    OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
     STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, effective_status, get_db,
@@ -69,6 +69,7 @@ templates.env.globals.update(
     SUBMISSION_OUTCOMES=SUBMISSION_OUTCOMES, OUTCOME_LABELS=OUTCOME_LABELS,
     OUTCOMES_BACK=OUTCOMES_BACK, OUTCOMES_PUBLISHED=OUTCOMES_PUBLISHED,
     OUTCOMES_ARCHIVED=OUTCOMES_ARCHIVED, OUTCOMES_REVISION=OUTCOMES_REVISION,
+    OUTPUT_TYPES=OUTPUT_TYPES, OUTPUT_TYPE_LABELS=OUTPUT_TYPE_LABELS,
     KEEPS_ATTEMPT_OPEN=KEEPS_ATTEMPT_OPEN,
     effective_status=effective_status, open_submission=open_submission,
 )
@@ -441,6 +442,7 @@ def hall_of_done(request: Request, slug: str,
 def edit_project(slug: str, pid: int,
                  title: str = Form(...), status_: str = Form(..., alias="status"),
                  final_title: str = Form(""), journal: str = Form(""),
+                 output_type: str = Form("paper"),
                  doi: str = Form(""), pub_year: str = Form(""),
                  summary: str = Form(""),
                  acc: WorkspaceAccess = Depends(workspace_dep("write"))):
@@ -450,6 +452,8 @@ def edit_project(slug: str, pid: int,
     for field, value in (("title", title.strip()),
                          ("final_title", final_title.strip() or None),
                          ("journal", snap(journal, known_venues(db, acc.workspace))),
+                         ("output_type",
+                          output_type if output_type in OUTPUT_TYPES else "paper"),
                          ("doi", doi.strip() or None),
                          ("summary", summary.strip() or None)):
         if getattr(p, field) != value:

@@ -24,7 +24,7 @@ import auth
 from models import (
     LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
     Note, Project, SessionLocal, Submission, effective_status,
-    get_or_create_person, is_dormant, known_people, known_venues,
+    OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
     last_event_at, log_event, snap, user_workspaces, utcnow,
 )
 # Aliased: the tool below is also called open_submission, and the model-facing
@@ -58,6 +58,7 @@ def _project_brief(p: Project, ws) -> dict:
         "status_mismatch": eff["diverges"],
         "authors": [a.person.name for a in p.authorships],
         "journal": p.journal,
+        "type": p.output_type or "paper",
         "year": p.pub_year,
         "doi": p.doi,
         "notes": len(p.notes),
@@ -459,9 +460,16 @@ def add_author(workspace: str, project_id: int, name: str,
 
 @mcp.tool()
 def create_project(workspace: str, title: str, status: str = "idea",
-                   summary: str = "", author: str = "") -> dict:
-    """Add a new project. Default status `idea`, which is where most things
-    start and where many stay."""
+                   summary: str = "", author: str = "",
+                   output_type: str = "paper") -> dict:
+    """
+    Add a new project. Default status `idea`, which is where most things start
+    and where many stay.
+
+    output_type: paper, book, book_chapter, media_piece, linkedin_post, other.
+    Not everything is a paper, and counting a book alongside one distorts every
+    per-output statistic.
+    """
     db = SessionLocal()
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
@@ -471,7 +479,9 @@ def create_project(workspace: str, title: str, status: str = "idea",
         if not title.strip():
             return _fail("A title is required")
         p = Project(workspace_id=ws.id, title=title.strip(), status=status,
-                    summary=summary.strip() or None, created_by=user.id)
+                    summary=summary.strip() or None, created_by=user.id,
+                    output_type=(output_type if output_type in OUTPUT_TYPES
+                                 else "paper"))
         db.add(p)
         db.flush()
         if author.strip():

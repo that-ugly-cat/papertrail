@@ -54,6 +54,7 @@
           {% if is_dormant(p) %}<span class="badge badge-warn">dormant</span>{% endif %}
           {% if eff.diverges %}<span class="badge badge-danger" title="Declared status disagrees with the submission record">status mismatch</span>{% endif %}
           {% if p.notes %}<span class="badge">{{ p.notes|length }} notes</span>{% endif %}
+          {% if p.output_type and p.output_type != 'paper' %}<span class="badge badge-type">{{ OUTPUT_TYPE_LABELS[p.output_type] }}</span>{% endif %}
           {% if p.pub_year %}<span class="badge">{{ p.pub_year }}</span>{% endif %}
         </div>
       </article>

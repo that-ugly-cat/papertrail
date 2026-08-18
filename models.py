@@ -123,6 +123,22 @@ def outcomes_for(from_status: str, to_status: str) -> list[str]:
         going_back = True
     return OUTCOMES_BACK if going_back else OUTCOMES_PUBLISHED
 
+# What the project produces. Not everything is a paper: this corpus already
+# holds a Routledge book, a children's book, and a piece that ended up as a
+# LinkedIn post after five journals turned it down. Lumping them together makes
+# "attempts to publication" compare things that are not comparable.
+OUTPUT_TYPES = ["paper", "book", "book_chapter", "media_piece",
+                "linkedin_post", "other"]
+
+OUTPUT_TYPE_LABELS = {
+    "paper":         "Paper",
+    "book":          "Book",
+    "book_chapter":  "Book chapter",
+    "media_piece":   "Media piece",
+    "linkedin_post": "LinkedIn post",
+    "other":         "Other",
+}
+
 LINK_KINDS = ["wiki", "file", "grant", "lssr", "doi", "url", "repo"]
 
 EVENT_TYPES = ["created", "status_change", "note_added", "submission_opened",
@@ -262,6 +278,7 @@ class Project(Base):
     final_title  = Column(String, nullable=True)
     summary      = Column(Text, nullable=True)
     journal      = Column(String, nullable=True)
+    output_type  = Column(String, nullable=True, default="paper")
     doi          = Column(String, nullable=True)
     pub_year     = Column(Integer, nullable=True)
     # Position within its kanban column, so drag-and-drop ordering survives.
@@ -558,6 +575,7 @@ _MIGRATIONS = [
     "ALTER TABLE notes ADD COLUMN author_label VARCHAR",
     "ALTER TABLE projects ADD COLUMN notion_id VARCHAR",
     "ALTER TABLE notes ADD COLUMN external_id VARCHAR",
+    "ALTER TABLE projects ADD COLUMN output_type VARCHAR DEFAULT 'paper'",
     "ALTER TABLE api_keys ADD COLUMN last_used_at DATETIME",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",

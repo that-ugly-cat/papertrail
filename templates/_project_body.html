@@ -58,6 +58,13 @@
             <input name="pub_year" value="{{ p.pub_year or '' }}" inputmode="numeric">
           </label>
         </div>
+        <label>Type
+          <select name="output_type">
+            {% for t in OUTPUT_TYPES %}
+            <option value="{{ t }}" {% if t == (p.output_type or 'paper') %}selected{% endif %}>{{ OUTPUT_TYPE_LABELS[t] }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label>DOI
           <input name="doi" value="{{ p.doi or '' }}" placeholder="10.xxxx/…">
         </label>
@@ -70,6 +77,7 @@
       <dl class="ro">
         <dt>Status</dt><dd>{{ STATUS_LABELS[p.status] }}</dd>
         {% if p.journal %}<dt>Journal / venue</dt><dd>{{ p.journal }}</dd>{% endif %}
+        <dt>Type</dt><dd>{{ OUTPUT_TYPE_LABELS.get(p.output_type or 'paper') }}</dd>
         {% if p.pub_year %}<dt>Year</dt><dd>{{ p.pub_year }}</dd>{% endif %}
         {% if p.doi %}<dt>DOI</dt><dd>{{ p.doi }}</dd>{% endif %}
         {% if p.summary %}<dt>Summary</dt><dd>{{ p.summary }}</dd>{% endif %}
