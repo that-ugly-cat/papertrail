@@ -17,8 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from models import (  # noqa: E402
     OUTPUT_TYPES, SUBMISSION_OUTCOMES, STATUSES, Link, Note, Person, Project,
-    SessionLocal, Submission, Workspace, effective_status, is_dormant,
-    last_event_at, open_submission, utcnow,
+    SessionLocal, Workspace, effective_status, last_event_at, open_submission,
+    utcnow,
 )
 
 FINDINGS = []
@@ -80,7 +80,11 @@ def main():
 
         # status against the record
         openx = open_submission(p)
-        if p.status in ("submitted", "in_revision") and not openx:
+        last = max(subs, key=lambda s: s.attempt) if subs else None
+        if (p.status in ("submitted", "in_revision") and not openx
+                and not (last and last.outcome == "accept")):
+            # Accepted-but-not-yet-out is a legitimate rest state here: nothing
+            # is open, and the paper is not published either.
             flag("WARN", "in submitted/in_revision senza tentativo aperto",
                  f"{p.id} {(p.final_title or p.title)[:44]}")
         if openx and p.status in ("published", "archived"):

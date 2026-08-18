@@ -35,8 +35,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from models import (  # noqa: E402
-    Note, Project, SessionLocal, Submission, Workspace, init_db, log_event,
-    utcnow,
+    Note, Project, SessionLocal, Submission, Workspace, init_db, known_venues,
+    log_event, snap, utcnow,
 )
 
 # ── vocabulary, drawn from the actual corpus rather than invented ─────────────
@@ -698,9 +698,13 @@ def main():
         for s in list(p.submissions):
             if s.notes and "Ricostruita dallo stato Notion" in s.notes:
                 db.delete(s)
+        # Same snap the UI and the MCP go through. Without it the lowercase
+        # forms lifted from the comments land beside the properly cased ones
+        # from Notion, and one journal answers the latency question twice.
+        vocab = known_venues(db, p.workspace)
         for a in row["attempts"]:
             db.add(Submission(
-                project_id=p.id, venue=a["venue"] or "(unknown)",
+                project_id=p.id, venue=snap(a["venue"], vocab) or "(unknown)",
                 attempt=a["attempt"],
                 submitted_at=a["submitted_at"] or a["outcome_at"] or utcnow(),
                 outcome=a["outcome"], outcome_at=a["outcome_at"],
