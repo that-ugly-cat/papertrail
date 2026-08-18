@@ -54,6 +54,15 @@
           .then(r => {
             if (!r.ok) throw new Error(r.status);
             dirty = true;
+            /* Most forms redirect back to the project and the dialog redraws.
+               Some do not: deleting sends you to the board, because the thing
+               the dialog was showing no longer exists. Follow wherever the
+               server actually landed instead of assuming it stayed put. */
+            const landed = new URL(r.url, location.href).pathname;
+            if (!landed.startsWith(url.split('?')[0])) {
+              location.href = r.url;
+              return;
+            }
             return open(url, false);
           })
           .catch(() => { form.submit(); });   /* let the browser do it instead */

@@ -225,7 +225,7 @@ def home(request: Request, user: User = Depends(get_current_user),
 
 
 @app.get("/me", response_class=HTMLResponse)
-def personal_board(request: Request, q: str | None = None, dormant: int = 0,
+def personal_board(request: Request, q: str | None = None, dormant: str = "",
                    ws_filter: str = "", user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     """
@@ -239,6 +239,7 @@ def personal_board(request: Request, q: str | None = None, dormant: int = 0,
     own workspace — the move endpoint is still /api/w/{its slug}/move, so a card
     from a workspace where you only have `read` cannot be dragged.
     """
+    dormant = 1 if str(dormant).strip() not in ("", "0") else 0
     scopes = user_workspaces(db, user)
     projects, allowed = _my_projects(db, user)
     if not allowed:
@@ -368,11 +369,23 @@ def personal_done(request: Request, user: User = Depends(get_current_user),
 
 
 @app.get("/w/{slug}", response_class=HTMLResponse)
-def board(request: Request, slug: str, person: int | None = None,
-          q: str | None = None, dormant: int = 0, mismatch: int = 0,
-          deleted: int = 0, title: str = "",
+def board(request: Request, slug: str, person: str = "",
+          q: str | None = None, dormant: str = "", mismatch: str = "",
+          deleted: str = "", title: str = "",
           acc: WorkspaceAccess = Depends(workspace_dep("read"))):
     db, ws = acc.db, acc.workspace
+
+    def as_int(value: str) -> int:
+        """A checkbox that is off sends nothing; a select set to \"all\" sends an
+        empty string. Neither is an error, both mean zero."""
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    person, dormant = as_int(person), as_int(dormant)
+    mismatch, deleted = as_int(mismatch), as_int(deleted)
+
     projects = (_projects_in(db, ws)
                 .order_by(Project.position, Project.id).all())
 
