@@ -14,6 +14,7 @@
   </div>
   <div class="board-actions">
     <a class="btn btn-ghost" href="/me/done">My hall of done</a>
+    {% if writable %}<button class="btn btn-primary" onclick="document.getElementById('newproj').showModal()">New project</button>{% endif %}
   </div>
 </div>
 
@@ -72,6 +73,32 @@
   </section>
   {% endfor %}
 </div>
+
+{% if writable %}
+<dialog id="newproj" class="modal">
+  <form method="post" action="/me/projects">
+    <h2>New project</h2>
+    <p class="muted small">You will be added as lead author, so it appears here.</p>
+    <label>Workspace
+      <select name="slug">
+        {% for ws, role in writable %}<option value="{{ ws.slug }}">{{ ws.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Title
+      <input name="title" required autofocus>
+    </label>
+    <label>Initial status
+      <select name="status">
+        {% for st in STATUSES %}<option value="{{ st }}" {% if st == 'idea' %}selected{% endif %}>{{ STATUS_LABELS[st] }}</option>{% endfor %}
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost" onclick="document.getElementById('newproj').close()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Create</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 
 <dialog id="submitdlg" class="modal">
   <form method="dialog">

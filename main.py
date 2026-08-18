@@ -34,7 +34,8 @@ from models import (
     OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
     STATUS_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
-    SessionLocal, Submission, User, Workspace, canonical, effective_status, get_db,
+    SessionLocal, Submission, User, Workspace, canonical, effective_status,
+    get_db, has_role, role_for,
     get_or_create_person, init_db, is_dormant, known_people, known_venues,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
     utcnow,
@@ -259,6 +260,7 @@ def personal_board(request: Request, q: str | None = None, dormant: int = 0,
         {"user": user, "columns": columns, "total": len(projects),
          "q": q or "", "dormant": dormant, "ws_filter": ws_filter,
          "scopes": scopes, "venues": venues,
+         "writable": [(w, r) for w, r in scopes if r in ("write", "admin")],
          "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in projects},
          "name_of": {p.id: allowed[p.workspace_id][0].name for p in projects},
          "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
@@ -283,6 +285,48 @@ def _my_projects(db: Session, user: User):
         return [], allowed
     return ([a.project for a in me.authorships
              if a.project and a.project.workspace_id in allowed], allowed)
+
+
+@app.post("/me/projects")
+def create_from_personal(slug: str = Form(...), title: str = Form(...),
+                         status_: str = Form("idea", alias="status"),
+                         user: User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """
+    Create a project from the personal view.
+
+    Two things this has to get right that the workspace form does not. The
+    workspace is chosen rather than implied, and it is checked against the
+    caller's own memberships — a slug typed into the form buys nothing.
+
+    And the caller is added as lead author. Without it the project would be
+    created and then vanish from the very view it was created in, because that
+    view is built from authorship: you would have to go find it in the workspace
+    board to add yourself. Creating something in "My work" means it is yours.
+    """
+    ws = db.query(Workspace).filter(Workspace.slug == slug).first()
+    role = role_for(db, user, ws) if ws else None
+    if ws is None or role is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not has_role(role, "write"):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if status_ not in STATUSES:
+        status_ = "idea"
+
+    p = Project(workspace_id=ws.id, title=title.strip(), status=status_,
+                created_by=user.id, position=0)
+    db.add(p)
+    db.flush()
+    person = (db.query(Person).filter(Person.user_id == user.id).first()
+              or get_or_create_person(db, user.name))
+    if person:
+        if person.user_id is None:
+            person.user_id = user.id
+        db.add(Authorship(project_id=p.id, person_id=person.id, role="lead",
+                          position=0))
+    log_event(db, p, user, "created", to_status=status_)
+    db.commit()
+    return RedirectResponse(f"/w/{ws.slug}/p/{p.id}", status_code=302)
 
 
 @app.get("/me/done", response_class=HTMLResponse)
