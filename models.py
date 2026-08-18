@@ -69,7 +69,7 @@ AUTHOR_ROLES = ["lead", "co-author", "PI", "supervisor"]
 
 SUBMISSION_OUTCOMES = ["pending", "desk_reject", "major_revision",
                        "minor_revision", "reject_after_review", "accept",
-                       "withdrawn", "transferred"]
+                       "withdrawn", "transferred", "unknown"]
 
 OUTCOME_LABELS = {
     "pending":             "in review",
@@ -84,6 +84,11 @@ OUTCOME_LABELS = {
     # starts one at a sister journal without a rejection in between. Recording
     # it as "rejected" would libel the editor and distort the venue statistics.
     "transferred":         "transferred to another journal",
+    # Closed, but nobody wrote down how. Distinct from a rejection on purpose:
+    # a paper that moved on almost certainly bounced, but "almost certainly" is
+    # not a datum. Excluded from latency statistics, which is the right
+    # behaviour for a number that was never observed.
+    "unknown":             "outcome not recorded",
 }
 
 # Leaving `submitted` leftwards and rightwards are different events, so they are
@@ -91,7 +96,7 @@ OUTCOME_LABELS = {
 # it moved on. Offering the full list in both directions invites the wrong
 # answer — "accepted" has no business being on the way back to Writing up.
 OUTCOMES_BACK = ["reject_after_review", "desk_reject", "transferred",
-                 "withdrawn"]
+                 "withdrawn", "unknown"]
 OUTCOMES_REVISION = ["major_revision", "minor_revision"]
 OUTCOMES_PUBLISHED = ["accept"]
 OUTCOMES_ARCHIVED = ["withdrawn", "reject_after_review", "desk_reject",

@@ -206,6 +206,10 @@ def vocabularies(workspace: str) -> dict:
     """
     The venues and people already known in a workspace.
 
+    A venue is not always a journal: this corpus also contains a book
+    publisher, arXiv and a paper that ended up on LinkedIn. The vocabulary
+    holds all of them.
+
     Read this before recording a submission or adding an author: reusing an
     existing spelling keeps the per-venue statistics from fragmenting, and stops
     the same person appearing twice. New values are still allowed — this is a
@@ -289,7 +293,10 @@ def set_status(workspace: str, project_id: int, status: str,
 def open_submission(workspace: str, project_id: int, venue: str,
                     submitted_at: str = "") -> dict:
     """
-    Record that a paper went out to a venue. Date as YYYY-MM-DD, today if empty.
+    Record that a paper went out. Date as YYYY-MM-DD, today if empty.
+
+    `venue` is a journal, but also a book publisher, a preprint server or a
+    platform — whatever the piece was actually sent to.
 
     Also moves the project to `submitted`, because a paper in review is not
     still "ready".

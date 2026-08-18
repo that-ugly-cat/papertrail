@@ -50,7 +50,7 @@
           </select>
         </label>
         <div class="row2">
-          <label>Journal
+          <label>Journal / venue
             <input name="journal" value="{{ p.journal or '' }}"
                    list="vocab-venues" autocomplete="off">
           </label>
@@ -69,7 +69,7 @@
       {% else %}
       <dl class="ro">
         <dt>Status</dt><dd>{{ STATUS_LABELS[p.status] }}</dd>
-        {% if p.journal %}<dt>Journal</dt><dd>{{ p.journal }}</dd>{% endif %}
+        {% if p.journal %}<dt>Journal / venue</dt><dd>{{ p.journal }}</dd>{% endif %}
         {% if p.pub_year %}<dt>Year</dt><dd>{{ p.pub_year }}</dd>{% endif %}
         {% if p.doi %}<dt>DOI</dt><dd>{{ p.doi }}</dd>{% endif %}
         {% if p.summary %}<dt>Summary</dt><dd>{{ p.summary }}</dd>{% endif %}
@@ -158,7 +158,7 @@
       {% endfor %}
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/submissions" class="inline-form">
-        <input name="venue" placeholder="Journal" required
+        <input name="venue" placeholder="Journal, publisher, platform…" required
                list="vocab-venues" autocomplete="off">
         <input name="submitted_at" type="date">
         <button class="btn btn-ghost" type="submit">Open</button>

@@ -141,6 +141,12 @@ def clean_venue(v: str | None) -> str | None:
     return v
 
 
+VENUE_IN = re.compile(
+    r"\b(?:for publication in|published in|appeared in)\s+"
+    r"([A-Z][\w&.'\-]*(?:\s+[\w&.'\-]+){0,7})")
+VENUE_BARE = re.compile(
+    r"^\s*(?:rejected|accepted)\s+([a-z][\w&.'\- ]{2,40}?)\s*$", re.I)
+
 VENUE_BEFORE = re.compile(
     r"^\s*(?:\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?\s*:?\s*)?"
     r"([A-Z][\w&.'\- ]{2,40}?)\s+(?:rejects?|rejected|accepts?|accepted|"
@@ -157,6 +163,16 @@ def find_venue(clause: str, action: str) -> str | None:
     """
     # "PUS rejects: …" puts the venue in front of the verb, where no
     # preposition will find it.
+    m1 = VENUE_IN.search(clause)
+    if m1:
+        v1 = " ".join(m1.group(1).split()).strip(" .,:;\"'")
+        if v1 and len(v1.split()) <= 9:
+            return v1
+    m2 = VENUE_BARE.match(clause)
+    if m2:
+        v2 = clean_venue(m2.group(1))
+        if v2:
+            return v2
     m0 = VENUE_BEFORE.match(clause)
     if m0:
         v0 = clean_venue(m0.group(1))
@@ -193,6 +209,11 @@ def split_clauses(body: str) -> list[str]:
     GUARD = "\x00REVROUND\x00"
     body = re.sub(r"\brevise[d]? and re-?submit(?:ted)?\b", GUARD, body,
                   flags=re.I)
+    # Same trap: "Review 1 submitted (23.10.25)" is a revision round going back,
+    # but the split cuts before "submitted" and the orphan opens an attempt.
+    GUARD2 = "\x00REVSENT\x00"
+    body = re.sub(r"\breview\s*\d*\s+(?:submitted|done|sent)\b", GUARD2, body,
+                  flags=re.I)
     parts = re.split(r"[;\n]|,(?=\s*\d{0,2}[.\s]*(?:re-?submit|reject|accept))",
                      body)
     out = []
@@ -201,8 +222,10 @@ def split_clauses(body: str) -> list[str]:
             r"(?=\b(?:re-?submitted|rejected|accepted|withdrawn|submitted)\b)",
             p, flags=re.I)
         out.extend(x.replace(GUARD, "revised and resubmitted")
+                    .replace(GUARD2, "review submitted")
                    for x in pieces if x.strip())
-    return out or [body.replace(GUARD, "revised and resubmitted")]
+    return out or [body.replace(GUARD, "revised and resubmitted")
+                       .replace(GUARD2, "review submitted")]
 
 
 def classify(clause: str) -> str | None:
@@ -376,6 +399,183 @@ def apply_from_csv(db, path: Path) -> int:
     return written
 
 
+# ── post-processing rules, agreed with Spit on review of the first pass ───────
+
+DESK_REJECT_DAYS = 7
+
+# Four chains Spit reconstructed by hand against the original notes, where the
+# parser could not win: intentions written like actions ("resubmit to X" with no
+# submission ever following), revision rounds that look like new attempts, two
+# sibling projects whose notes name each other, and one venue that appears
+# nowhere in the text. These are human readings and they override the parse.
+MANUAL_CHAINS = {
+    "Freedom NRP80": [
+        # "resubmit to conflict and health" and "resubmit to something in
+        # frontiers" were plans, never acted on. The two undated attempts at the
+        # end are revision rounds at SSHO, not new submissions.
+        ("JMIR", "2025-02-10", "unknown", "2025-11-03",
+         "2 solleciti, reviews ricevute, poi abbandonato"),
+        ("SSM", "2025-11-08", "reject_after_review", "2025-12-15", ""),
+        ("Social Sciences and Humanities Open", "2025-12-15", "accept", None,
+         "arrivato per transfer da SSM; revisioni 24/02/26 e 21/04/26"),
+    ],
+    "Watermarks": [
+        # The first venue is named nowhere in the notes; Spit supplied it.
+        ("AI & Society", None, "reject_after_review", "2026-04-17",
+         "rifiutato dopo invio a 2 ulteriori revisori; appello presentato"),
+        ("Ethics and Information Technology", "2026-07-17", "pending", None,
+         "20/07/26: resubmit per technical check"),
+    ],
+    "OA value extraction full paper": [
+        # The "precis to nature magazine" in the same note belongs to the
+        # sibling project, not to this one.
+        ("Accountability in Research", "2026-01-22", "accept", None,
+         "4 tappe: review 1 done, review 1 submitted, review received, resubmitted"),
+    ],
+    "Prepidemiology perspective": [
+        ("NEJM", "2024-11-28", "unknown", "2024-12-11", ""),
+        ("NEJM Catalyst", "2024-12-11", "reject_after_review", "2025-02-04", ""),
+        ("Bioethics", "2025-03-03", "unknown", "2025-04-17", ""),
+        ("International Journal of Public Health", "2025-04-17", "unknown",
+         "2025-05-15", ""),
+        ("JOLE", "2025-05-15", "accept", None, "APC pagata"),
+    ],
+}
+
+# A venue is not always a journal: the corpus holds a book publisher, a preprint
+# server, and a paper that ended up on LinkedIn. What it must never hold is a
+# person — "sent to reto stocker" is a colleague reading a draft, not a
+# submission, and recording it as one would invent a rejection later.
+# (project title prefix, index) -> venue, read off the evidence by hand.
+MANUAL_VENUES = {
+    ("42 problem", 1): "Nature",
+    ("ERC game concept", 1): "Heliyon",
+    ("Biopolitics conspiracy religion", 1):
+        "Journal of Medicine and Philosophy",
+    ("teaching ethics with graphic novels", 4):
+        "International Journal of Ethics Education",
+}
+
+# Attempts that are not attempts: a stated intention, and a second note about a
+# rejection already recorded.
+MANUAL_DROPS = {
+    ("PubliCo for preference epidemiology", 5),   # "submit to NEJM catalyst as
+                                                  # soon as theoretical piece is
+                                                  # out" — never acted on
+    ("TopicTracker", 2),                          # same BMC rejection, retold
+}
+
+VENUE_FIXES = {
+    "helyon": "Heliyon",
+    "ai and society": "AI & Society",
+    "arxiv": "arXiv (preprint)",
+    "media outlets": "The Atlantic / MIT Technology Review",
+    "“undark magazine” and “the guardian opinion”": "Undark / The Guardian Opinion",
+}
+# Not venues: a toolchain listed in an abstract, file formats, and SNF, which
+# is the funder that pays for the paper, not the place that publishes it.
+JUNK_VENUES = {"python, spacy, bokeh, etc", "i.e. word, tex", "snf",
+               "technical check requests", "something in frontiers"}
+
+NOT_A_SUBMISSION = re.compile(
+    r"^(reto stocker|tom lee|thomas lee|simone|claire|katherine cheung)\b", re.I)
+
+
+def apply_rules(proposal: list[dict]) -> Counter:
+    """
+    Three corrections decided by reading the first pass, applied to every chain.
+
+    1. A rejection inside a week never saw a reviewer. Leaving them all as
+       `reject_after_review` makes the median look like a peer-review time when
+       it is a front-desk time.
+    2. A published project whose chain ends open never had its acceptance
+       written down, because by then the news had travelled elsewhere. The fact
+       is certain, so the last attempt is closed as accepted.
+    3. Venues that are people are dropped; venues that are platforms or preprint
+       servers are kept under an explicit name, because they are real steps in
+       that paper's story.
+    """
+    stats = Counter()
+    for row in proposal:
+        manual = next((v for k, v in MANUAL_CHAINS.items()
+                       if row["title"].startswith(k)), None)
+        if manual:
+            row["attempts"] = [
+                {"venue": venue,
+                 "submitted_at": datetime.fromisoformat(sub) if sub else None,
+                 "outcome": outcome,
+                 "outcome_at": datetime.fromisoformat(out) if out else None,
+                 "confidence": "manual", "attempt": i,
+                 "evidence": [x for x in
+                              ["ricostruito a mano da Spit sulle note originali",
+                               note] if x]}
+                for i, (venue, sub, outcome, out, note) in enumerate(manual, 1)]
+            stats["catene ricostruite a mano"] += 1
+            continue
+
+        kept = []
+        for a in row["attempts"]:
+            key = next(((k, i) for (k, i) in list(MANUAL_VENUES) + list(MANUAL_DROPS)
+                        if row["title"].startswith(k) and i == a["attempt"]), None)
+            if key in MANUAL_DROPS:
+                stats["scartati a mano (intenzione o doppione)"] += 1
+                continue
+            if key in MANUAL_VENUES:
+                a["venue"] = MANUAL_VENUES[key]
+                a["evidence"].append("[venue letto a mano dall'evidenza]")
+                stats["venue letti a mano"] += 1
+            v = (a["venue"] or "").strip()
+            if v and NOT_A_SUBMISSION.match(v):
+                stats["scartati: persona, non venue"] += 1
+                continue
+            if v.lower() in JUNK_VENUES:
+                a["venue"] = None
+                v = ""
+                stats["venue spazzatura svuotati"] += 1
+            if v.lower() in VENUE_FIXES:
+                a["venue"] = VENUE_FIXES[v.lower()]
+                stats["venue normalizzato"] += 1
+            s, o = a["submitted_at"], a["outcome_at"]
+            if (a["outcome"] == "reject_after_review" and s and o
+                    and (o - s).days <= DESK_REJECT_DAYS):
+                a["outcome"] = "desk_reject"
+                stats[f"riclassificati desk reject (<={DESK_REJECT_DAYS}gg)"] += 1
+            kept.append(a)
+        for i, a in enumerate(kept, 1):
+            a["attempt"] = i
+        row["attempts"] = kept
+
+        # An attempt superseded by a later submission is over; how it ended was
+        # never written down. `unknown` says exactly that, where `pending` would
+        # claim a paper is still in review years after it was published
+        # elsewhere, and `reject_after_review` would invent 27 rejections.
+        for a in kept:
+            if a.get("superseded_by") and a["outcome"] == "pending":
+                a["outcome"] = "unknown"
+                a["evidence"].append(
+                    f"[esito non registrato; superata il {a['superseded_by']}]")
+                stats["chiusi come 'unknown' (esito mai scritto)"] += 1
+
+        if row["status"] == "published" and kept and kept[-1]["outcome"] == "pending":
+            kept[-1]["outcome"] = "accept"
+            kept[-1]["evidence"].append(
+                "[dedotto: il progetto risulta pubblicato]")
+            stats["accettazioni dedotte sui published"] += 1
+
+        # The last attempt of a published paper landed somewhere, and the card
+        # already records where: the Journal/venue field came across from Notion
+        # for 55 projects. Using it here is not a guess, it is reading the field
+        # that was filled precisely when the answer became known.
+        if kept and row.get("journal"):
+            last = kept[-1]
+            if not last["venue"] and last["outcome"] in ("accept", "pending"):
+                last["venue"] = row["journal"]
+                last["evidence"].append(
+                    f"[venue dal campo Journal/venue della scheda: {row['journal']}]")
+                stats["venue finale preso dalla scheda"] += 1
+    return stats
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", default="ite")
@@ -422,10 +622,26 @@ def main():
             continue
         proposal.append({"project_id": p.id, "title": p.title,
                          "status": p.status, "existing": len(p.submissions),
-                         "attempts": chain})
+                         "journal": p.journal, "attempts": chain})
         stats["progetti"] += 1
         stats["tentativi"] += len(chain)
         for a in chain:
+            stats[f"conf:{a['confidence']}"] += 1
+            stats[f"esito:{a['outcome']}"] += 1
+            if not a["venue"]:
+                stats["senza venue"] += 1
+            if a.get("superseded_by"):
+                stats["pending superati"] += 1
+
+    rule_stats = apply_rules(proposal)
+
+    # The counters above were taken while building the chains, so they predate
+    # the rules. Recount, or the summary describes a proposal that no longer
+    # exists.
+    stats = Counter({"progetti": len(proposal)})
+    for row in proposal:
+        stats["tentativi"] += len(row["attempts"])
+        for a in row["attempts"]:
             stats[f"conf:{a['confidence']}"] += 1
             stats[f"esito:{a['outcome']}"] += 1
             if not a["venue"]:
@@ -453,6 +669,10 @@ def main():
     print("\n" + "=" * 56)
     for k, v in sorted(stats.items()):
         print(f"  {k:18} {v}")
+    if rule_stats:
+        print("\n  regole applicate:")
+        for k, v in sorted(rule_stats.items()):
+            print(f"    {k:46} {v}")
 
     if not args.apply:
         print(f"\nProposta salvata in {out.name}. Niente scritto.")
