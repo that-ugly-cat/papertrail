@@ -201,6 +201,8 @@ class Project(Base):
     # Position within its kanban column, so drag-and-drop ordering survives.
     position     = Column(Integer, default=0)
     imported     = Column(Boolean, default=False)
+    # Notion page id, so the import can be re-run without duplicating anything.
+    notion_id    = Column(String, nullable=True, unique=True, index=True)
     created_at   = Column(DateTime, default=utcnow)
     created_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -280,6 +282,8 @@ class Note(Base):
     body_md    = Column(Text, nullable=False)
     source     = Column(String, default="web")   # web | mcp | notion-import
     author_label = Column(String, nullable=True)  # for imports: original author
+    # Notion comment id, so a re-import updates instead of duplicating.
+    external_id = Column(String, nullable=True, unique=True, index=True)
 
     project = relationship("Project", back_populates="notes")
     user    = relationship("User")
@@ -435,6 +439,10 @@ _MIGRATIONS = [
     "ALTER TABLE projects ADD COLUMN position INTEGER DEFAULT 0",
     "ALTER TABLE projects ADD COLUMN imported BOOLEAN DEFAULT 0",
     "ALTER TABLE notes ADD COLUMN author_label VARCHAR",
+    "ALTER TABLE projects ADD COLUMN notion_id VARCHAR",
+    "ALTER TABLE notes ADD COLUMN external_id VARCHAR",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",
 ]
 
 

@@ -8,3 +8,4 @@ data/*.sqlite3
 SPEC.md
 migration/probe_report.json
 migration/probe_run.log
+migration/import_run.log
