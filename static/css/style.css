@@ -411,3 +411,12 @@ tr.revoked { opacity: .5; }
 .note-more { font-size: 12px; margin-top: 2px; }
 .badge-private { background: var(--card); border: 1px dashed var(--border); color: var(--muted); }
 .link-private { flex-basis: 100%; font-size: 12px; margin: 4px 0 0; }
+
+/* -- My work: the two questions kept visibly apart -- */
+.scope-tabs { display: flex; gap: 4px; margin: 8px 0 0; flex-wrap: wrap; }
+.scope-tab {
+  padding: 3px 10px; border-radius: 999px; color: var(--muted);
+  border: 1px solid var(--border); background: var(--card);
+}
+.scope-tab:hover { color: var(--text); text-decoration: none; }
+.scope-tab.on { color: var(--text); border-color: var(--accent); background: var(--card-hover); }

@@ -7,9 +7,25 @@
   <div>
     <h1>My work</h1>
     <p class="muted small">
-      {{ total }} project{{ '' if total == 1 else 's' }} you are an author on,
-      across {{ scopes|length }} workspace{{ '' if scopes|length == 1 else 's' }}.
+      {% if scope == 'authored' %}
+      {{ total }} project{{ '' if total == 1 else 's' }} your name is on — a
+      bibliography, not a work list.
+      {% else %}
+      {{ total }} project{{ '' if total == 1 else 's' }} you are driving or
+      watching, across {{ scopes|length }} workspace{{ '' if scopes|length == 1 else 's' }}.
+      {% endif %}
       Each card still belongs to its own workspace and keeps its rules there.
+    </p>
+    {# Two different questions, deliberately not merged: what I am working on,
+       and where my name appears. Since the Crossref import the second includes
+       papers with twenty-one authors that nobody here is driving. #}
+    <p class="scope-tabs small">
+      {% for key, label in [('involved', 'On my board'), ('lead', 'I lead'),
+                            ('watching', 'Watching'), ('authored', "My name is on")] %}
+      <a class="scope-tab {% if scope == key %}on{% endif %}"
+         href="/me?scope={{ key }}{% if q %}&q={{ q }}{% endif %}">{{ label }}
+        <span class="muted">{{ counts.get(key, 0) }}</span></a>
+      {% endfor %}
     </p>
   </div>
   <div class="board-actions">
@@ -19,6 +35,7 @@
 </div>
 
 <form class="filters" method="get" action="/me">
+  <input type="hidden" name="scope" value="{{ scope }}">
   <input type="search" name="q" value="{{ q }}" placeholder="Search title or summary…">
   <select name="ws_filter">
     <option value="">All workspaces</option>

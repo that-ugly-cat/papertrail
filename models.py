@@ -311,6 +311,9 @@ class Project(Base):
                                cascade="all, delete-orphan")
     events      = relationship("Event", back_populates="project",
                                cascade="all, delete-orphan")
+    involvements = relationship("Involvement", back_populates="project",
+                                foreign_keys="Involvement.project_id",
+                                cascade="all, delete-orphan")
     notes       = relationship("Note", back_populates="project",
                                cascade="all, delete-orphan")
     links       = relationship("Link", back_populates="project",
@@ -376,6 +379,44 @@ class Submission(Base):
         if self.outcome != "pending":
             return None
         return (utcnow() - (self.submitted_at or utcnow())).days
+
+
+class Involvement(Base):
+    """
+    A person's stake in a project, as an **account** rather than as a name.
+
+    Authorship used to do this job as well as its own, and after the Crossref
+    import the two came apart visibly: on the psychedelics paper Spit is
+    `lead` at position 0, which is true of the project and false of the paper,
+    where he is fourteenth of twenty-one. One field saying two things ends up
+    saying both badly.
+
+    So bibliography stays in `Authorship`, keyed on `Person`, and this is keyed
+    on `User`, because a work list is about accounts. It also expresses the case
+    that nothing derived could: **watching a project you did not write**, which
+    under any authorship-derived scheme has no home at all.
+
+    It is not a permission. You can only involve yourself in a project you can
+    already see, and the workspace remains the only thing that decides access —
+    a filter on the view, never a second way to authorise.
+    """
+    __tablename__ = "involvements"
+    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
+    id         = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # 'lead' = I am driving this. 'watching' = keep it on my radar.
+    kind       = Column(String, nullable=False, default="lead")
+    created_at = Column(DateTime, default=utcnow)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    project = relationship("Project", back_populates="involvements",
+                           foreign_keys=[project_id])
+    user    = relationship("User", foreign_keys=[user_id])
+
+
+INVOLVEMENT_KINDS = ["lead", "watching"]
+INVOLVEMENT_LABELS = {"lead": "I lead this", "watching": "Watching"}
 
 
 class Event(Base):
@@ -505,6 +546,59 @@ def user_workspaces(db, user: User) -> list[tuple[Workspace, str]]:
               .order_by(Workspace.archived, Workspace.name)
               .all())
     return [(ws, role) for ws, role in rows]
+
+
+def involvement_of(project: "Project", user: "User") -> "Involvement | None":
+    for i in project.involvements:
+        if i.user_id == user.id:
+            return i
+    return None
+
+
+def seed_involvements(db, dry_run: bool = True) -> dict:
+    """
+    Reconstruct ownership from the one place it still exists cleanly.
+
+    `Authorship.role == 'lead'` is exactly Notion's `Managed by`, because
+    everything the Crossref pass added came in as `co-author`. That signal is
+    clean *now* and stops being clean the moment anybody edits a role by hand,
+    which is why the seed is worth running immediately rather than eventually.
+
+    Only leads that resolve to an account become involvements: ownership is
+    about accounts, and a lead with no account is a bibliographic fact that
+    belongs to `Authorship` alone.
+    """
+    users = db.query(User).all()
+    by_key = {}
+    for u in users:
+        by_key[canonical(u.name)] = u
+    added, skipped = 0, 0
+    for a in db.query(Authorship).filter(Authorship.role == "lead").all():
+        project = a.project
+        if project is None or project.deleted_at is not None:
+            continue
+        person = a.person
+        user = None
+        if person and person.user_id:
+            user = db.get(User, person.user_id)
+        if user is None and person:
+            user = by_key.get(canonical(person.name))
+        if user is None:
+            skipped += 1
+            continue
+        if involvement_of(project, user):
+            continue
+        if not dry_run:
+            db.add(Involvement(project_id=project.id, user_id=user.id,
+                               kind="lead", created_by=user.id))
+        added += 1
+    if not dry_run:
+        db.commit()
+    orphans = [p.id for p in db.query(Project)
+               .filter(Project.deleted_at == None).all()          # noqa: E711
+               if not p.involvements]
+    return {"added": added, "leads_without_account": skipped,
+            "projects_without_owner": orphans}
 
 
 def wiki_url(target: str) -> str | None:
@@ -800,6 +894,8 @@ _MIGRATIONS = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_projects_notion_id ON projects (notion_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_notes_external_id ON notes (external_id)",
     "ALTER TABLE links ADD COLUMN user_id INTEGER",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_involvement_unique "
+    "ON involvements (project_id, user_id)",
     "ALTER TABLE workspaces ADD COLUMN kind VARCHAR DEFAULT 'group'",
     "ALTER TABLE workspaces ADD COLUMN owner_id INTEGER",
     "UPDATE workspaces SET kind = 'group' WHERE kind IS NULL",

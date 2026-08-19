@@ -33,10 +33,10 @@ from models import (
     AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, ProjectWorkspace, LINK_KINDS, OUTCOME_LABELS,
     OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, OUTCOMES_REVISION,
     OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
-    STATUS_LABELS,
+    STATUS_LABELS, Involvement, INVOLVEMENT_KINDS, INVOLVEMENT_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, canonical, effective_status,
-    get_db, has_role, role_for, workspaces_of,
+    get_db, has_role, involvement_of, role_for, workspaces_of,
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
     apply_outcome, last_event_at, log_event, open_submission, slugify, snap,
@@ -238,7 +238,8 @@ def home(request: Request, user: User = Depends(get_current_user),
 
 @app.get("/me", response_class=HTMLResponse)
 def personal_board(request: Request, q: str | None = None, dormant: str = "",
-                   ws_filter: str = "", user: User = Depends(get_current_user),
+                   ws_filter: str = "", scope: str = "involved",
+                   user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     """
     Everything the caller is an author on, across every workspace they belong to.
@@ -256,14 +257,17 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
     """
     dormant = 1 if str(dormant).strip() not in ("", "0") else 0
     scopes = user_workspaces(db, user)
-    projects, allowed = _my_projects(db, user)
+    if scope not in ("involved", "lead", "watching", "authored"):
+        scope = "involved"
+    projects, allowed = _my_projects(db, user, scope)
     if not allowed:
         return templates.TemplateResponse(
             request, "personal.html",
             {"user": user, "columns": {s: [] for s in STATUSES}, "total": 0,
              "q": q or "", "dormant": dormant, "scopes": [], "ws_filter": "",
              "venues": [], "role_of": {}, "is_dormant": lambda p: False,
-             "mine": personal_workspace(db, user), "writable": []})
+             "mine": personal_workspace(db, user), "writable": [],
+             "scope": scope, "counts": {}})
 
     if ws_filter:
         projects = [p for p in projects
@@ -292,6 +296,8 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
          "scopes": scopes, "venues": venues,
          "writable": [(w, r) for w, r in scopes if r in ("write", "admin")],
          "mine": personal_workspace(db, user),
+         "scope": scope,
+         "counts": _scope_counts(db, user, allowed),
          "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in projects},
          "name_of": {p.id: allowed[p.workspace_id][0].name for p in projects},
          "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
@@ -300,8 +306,42 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
     )
 
 
-def _my_projects(db: Session, user: User):
-    """(projects authored by the caller, {ws_id: (workspace, role)}).
+def _scope_counts(db: Session, user: User, allowed: dict) -> dict:
+    inv = db.query(Involvement).filter(Involvement.user_id == user.id).all()
+    ids = {i.project_id for i in inv}
+    live = {p.id for p in db.query(Project)
+            .filter(Project.id.in_(ids or [0]),
+                    Project.deleted_at == None).all()}            # noqa: E711
+    return {
+        "involved": len(live),
+        "lead": len([i for i in inv if i.kind == "lead" and i.project_id in live]),
+        "watching": len([i for i in inv
+                         if i.kind == "watching" and i.project_id in live]),
+        "authored": len(_authored_projects(db, user, allowed)),
+    }
+
+
+def _authored_projects(db: Session, user: User, allowed: dict):
+    """Projects the caller's name is on. Bibliography, not a work list."""
+    me = (db.query(Person).filter(Person.user_id == user.id).first()
+          or db.query(Person)
+               .filter(Person.canonical_name == canonical(user.name)).first())
+    if me is None:
+        return []
+    return [a.project for a in me.authorships
+            if a.project and a.project.deleted_at is None
+            and a.project.workspace_id in allowed]
+
+
+def _my_projects(db: Session, user: User, scope: str = "involved"):
+    """
+    (projects, {ws_id: (workspace, role)}) for the personal views.
+
+    `scope` decides which question is being asked, and they are genuinely
+    different ones. Involvement is a work list: what I am driving or keeping an
+    eye on, including a project I did not write. Authorship is a bibliography:
+    where my name appears, which after the Crossref import includes a paper
+    where I am fourteenth of twenty-one and drive nothing.
 
     Shared by the personal board and the personal hall so the two cannot
     disagree about what counts as yours.
@@ -309,14 +349,21 @@ def _my_projects(db: Session, user: User):
     allowed = {ws.id: (ws, role) for ws, role in user_workspaces(db, user)}
     if not allowed:
         return [], allowed
-    me = (db.query(Person).filter(Person.user_id == user.id).first()
-          or db.query(Person)
-               .filter(Person.canonical_name == canonical(user.name)).first())
-    if me is None:
-        return [], allowed
-    return ([a.project for a in me.authorships
-             if a.project and a.project.deleted_at is None
-             and a.project.workspace_id in allowed], allowed)
+
+    if scope == "authored":
+        return _authored_projects(db, user, allowed), allowed
+
+    rows = (db.query(Project).join(Involvement,
+                                   Involvement.project_id == Project.id)
+              .filter(Involvement.user_id == user.id,
+                      Project.deleted_at == None)                 # noqa: E711
+              .all())
+    if scope in ("lead", "watching"):
+        keep = {i.project_id for i in
+                db.query(Involvement).filter(Involvement.user_id == user.id,
+                                             Involvement.kind == scope).all()}
+        rows = [p for p in rows if p.id in keep]
+    return [p for p in rows if p.workspace_id in allowed], allowed
 
 
 @app.post("/me/projects")
@@ -601,6 +648,9 @@ def project_page(request: Request, slug: str, pid: int, partial: int = 0,
          "role": role, "can_write": has_role(role, "write"), "p": p,
          "project_ws": workspaces_of(p),
          "links": visible_links(p, acc.user),
+         "involvement": involvement_of(p, acc.user),
+         "INVOLVEMENT_KINDS": INVOLVEMENT_KINDS,
+         "INVOLVEMENT_LABELS": INVOLVEMENT_LABELS,
          "ws_options": [(w, r) for w, r in user_workspaces(acc.db, acc.user)
                         if r in ("write", "admin") or w.id in mine],
          "events": events, "notes": notes, "subs": subs,
@@ -852,6 +902,40 @@ def remove_author(slug: str, pid: int, aid: int,
                   payload=json.dumps({"removed": a.person.name}))
         db.delete(a)
         db.commit()
+    return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
+
+
+@app.post("/w/{slug}/p/{pid}/involvement")
+def set_involvement(slug: str, pid: int, kind: str = Form(""),
+                    acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """
+    Put a project on my board, or take it off.
+
+    Deliberately `read` and not `write`: watching something is a note to myself,
+    not a change to the project, and needing write access to keep an eye on a
+    colleague's paper would defeat the case this exists for. An empty `kind`
+    removes the row — absence is how "not involved" is said, the same rule as
+    Membership in §3, rather than a third kind meaning nothing.
+    """
+    db = acc.db
+    p = _project_or_404(acc, pid)
+    row = involvement_of(p, acc.user)
+    if kind not in INVOLVEMENT_KINDS:
+        if row:
+            db.delete(row)
+            log_event(db, p, acc.user, "field_changed",
+                      payload=json.dumps({"involvement": "removed"}))
+    elif row:
+        if row.kind != kind:
+            row.kind = kind
+            log_event(db, p, acc.user, "field_changed",
+                      payload=json.dumps({"involvement": kind}))
+    else:
+        db.add(Involvement(project_id=p.id, user_id=acc.user.id, kind=kind,
+                           created_by=acc.user.id))
+        log_event(db, p, acc.user, "field_changed",
+                  payload=json.dumps({"involvement": kind}))
+    db.commit()
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 
 

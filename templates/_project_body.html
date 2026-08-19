@@ -169,6 +169,26 @@
   <div>
 
     <div class="card">
+      <h2>On my board</h2>
+      {# `read` is enough: watching is a note to myself, not a change to the
+         project. Needing write access to keep an eye on a colleague's paper
+         would defeat the case this exists for. #}
+      <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/involvement"
+            class="inline-form">
+        <select name="kind">
+          <option value="" {% if not involvement %}selected{% endif %}>Not on my board</option>
+          {% for k in INVOLVEMENT_KINDS %}
+          <option value="{{ k }}" {% if involvement and involvement.kind == k %}selected{% endif %}>{{ INVOLVEMENT_LABELS[k] }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-ghost btn-sm" type="submit">Set</button>
+      </form>
+      <p class="muted small">Separate from authorship on purpose: this is what
+        you are driving or watching, which is not the same as where your name
+        appears. Shows up in <a href="/me">My work</a>.</p>
+    </div>
+
+    <div class="card">
       <h2>Workspaces</h2>
       {% if can_write %}
       <form method="post" action="/w/{{ ws.slug }}/p/{{ p.id }}/workspaces">
