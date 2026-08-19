@@ -506,6 +506,22 @@ def user_workspaces(db, user: User) -> list[tuple[Workspace, str]]:
     return [(ws, role) for ws, role in rows]
 
 
+def wiki_url(target: str) -> str | None:
+    """
+    Where a `wiki` link points on Onopedia, or None if it is not servable.
+
+    The stored target stays the **repo-relative path**, which is the stable key
+    (§8) and the one thing that still works with a checkout on disk. The URL is
+    built for display instead of written into the row: rewriting targets would
+    trade a key that works in two places for one that works in one.
+    """
+    base = os.environ.get("WIKI_BASE_URL", "").rstrip("/")
+    t = (target or "").strip()
+    if not base or not t.startswith("wiki/") or not t.endswith(".md"):
+        return None
+    return f"{base}/p/{t[len('wiki/'):-3]}"
+
+
 def visible_links(project: "Project", user: User) -> list["Link"]:
     """
     The links this user may see on this project: the shared ones, plus their own.

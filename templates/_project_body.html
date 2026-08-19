@@ -329,6 +329,10 @@
             {% if l.user_id %}<span class="badge badge-private" title="Only you can see this link">only you</span>{% endif %}
             {% if l.kind in ('url', 'doi', 'repo', 'lssr', 'grant') %}
             <a href="{{ l.target }}" target="_blank" rel="noopener">{{ l.label or l.target }}</a>
+            {% elif l.kind == 'wiki' and wiki_url(l.target) %}
+            {# The row still holds the repo path; the URL is built here, so the
+               stored key keeps working against a checkout on disk. #}
+            <a href="{{ wiki_url(l.target) }}" target="_blank" rel="noopener">{{ l.label or l.target }}</a>
             {% else %}{{ l.label or l.target }}{% endif %}
           </span>
           {% if can_write %}

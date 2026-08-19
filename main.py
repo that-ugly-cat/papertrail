@@ -40,7 +40,7 @@ from models import (
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
     last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
-    utcnow, visible_links,
+    utcnow, visible_links, wiki_url,
 )
 
 from mcp_app import mcp  # noqa: E402
@@ -66,6 +66,7 @@ BASE = Path(__file__).parent
 app = FastAPI(title="PaperTrail", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=BASE / "templates")
+templates.env.globals["wiki_url"] = wiki_url
 
 
 def _md(text: str):
