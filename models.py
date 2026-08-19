@@ -12,6 +12,7 @@ Migration strategy (borant house pattern): init_db() runs ALTER TABLE for each
 new column on every startup; SQLite raises on duplicates, caught and ignored
 (additive only).
 """
+import json
 import os
 import re
 import secrets
@@ -651,6 +652,60 @@ def is_dormant(project: Project, threshold_days: int) -> bool:
     if last is None:
         return False
     return (utcnow() - last).days >= threshold_days
+
+
+def append_milestone(existing: str | None, outcome: str,
+                     when: datetime | None = None) -> str:
+    """A revision round recorded on the attempt it belongs to, without closing
+    it: the paper is still at that venue and the clock is still running."""
+    line = f"{(when or utcnow()):%Y-%m-%d}: {OUTCOME_LABELS.get(outcome, outcome)}"
+    return "
+".join(filter(None, [existing, line]))
+
+
+def apply_outcome(db, submission: "Submission", outcome: str, user: User | None,
+                  when: datetime | None = None) -> bool:
+    """
+    Record an outcome on an attempt, and move the project with it.
+
+    Lives here, and not in a route, because there are two doors onto this
+    operation and they had drifted apart: the MCP closed an attempt on
+    `major_revision` (contradicting KEEPS_ATTEMPT_OPEN, §4) and never moved the
+    project's status, so a paper accepted through the model-facing surface
+    stayed `submitted` and showed up as a status mismatch. Two implementations
+    of one rule is one implementation and one bug — the fourth time today that
+    a constraint sat on the interface instead of on the function that writes.
+
+    `when` is the date on the letter, which is not the date somebody got round
+    to typing it in. Defaulting it to now is how a system whose every latency is
+    a subtraction of two dates starts lying.
+    """
+    if outcome not in SUBMISSION_OUTCOMES:
+        return False
+    p = submission.project
+    stamp = when or utcnow()
+    if outcome in KEEPS_ATTEMPT_OPEN:
+        submission.notes = append_milestone(submission.notes, outcome, stamp)
+    else:
+        submission.outcome = outcome
+        submission.outcome_at = stamp if outcome != "pending" else None
+    log_event(db, p, user, "submission_outcome",
+              payload=json.dumps({"venue": submission.venue, "outcome": outcome,
+                                  "attempt": submission.attempt,
+                                  "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
+    # A closing outcome moves the card too: leaving it in `submitted` after a
+    # rejection is the drift that produced the Smoking bans mismatch.
+    if outcome not in KEEPS_ATTEMPT_OPEN and p.status in ("submitted",
+                                                          "in_revision"):
+        new = "published" if outcome == "accept" else "ready"
+        log_event(db, p, user, "status_change", from_status=p.status,
+                  to_status=new)
+        p.status = new
+    elif outcome in KEEPS_ATTEMPT_OPEN and p.status == "submitted":
+        log_event(db, p, user, "status_change", from_status=p.status,
+                  to_status="in_revision")
+        p.status = "in_revision"
+    return True
 
 
 def log_event(db, project: Project, user: User | None, type_: str, *,

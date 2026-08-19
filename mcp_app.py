@@ -17,13 +17,14 @@ gives the model a stack trace to hallucinate around, while a message it can read
 lets it correct course.
 """
 import json
+from datetime import datetime
 
 from mcp.server.mcpserver import MCPServer
 
 import auth
 from models import (
-    LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
-    Note, Project, SessionLocal, Submission, effective_status,
+    KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
+    Note, Project, SessionLocal, Submission, apply_outcome, effective_status,
     OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
     last_event_at, log_event, snap, user_workspaces, utcnow, visible_links,
 )
@@ -306,7 +307,6 @@ def open_submission(workspace: str, project_id: int, venue: str,
     Also moves the project to `submitted`, because a paper in review is not
     still "ready".
     """
-    from datetime import datetime
     db = SessionLocal()
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
@@ -376,10 +376,17 @@ def open_submission(workspace: str, project_id: int, venue: str,
 
 @mcp.tool()
 def record_outcome(workspace: str, submission_id: int, outcome: str,
-                   note: str = "") -> dict:
+                   note: str = "", outcome_at: str = "") -> dict:
     """
-    Close a submission attempt. outcome: desk_reject, major_revision,
-    minor_revision, reject_after_review, accept, withdrawn.
+    Record an outcome on a submission attempt. outcome: desk_reject,
+    major_revision, minor_revision, reject_after_review, accept, withdrawn.
+
+    `outcome_at` is the date on the decision letter (YYYY-MM-DD), which is
+    usually NOT today: pass it whenever you know it, or every latency this
+    system computes is wrong by however long it took to get round to typing it.
+
+    A revision keeps the attempt open — the paper is still at that venue and the
+    clock is still running — and the project's status moves with the outcome.
     """
     db = SessionLocal()
     try:
@@ -395,19 +402,26 @@ def record_outcome(workspace: str, submission_id: int, outcome: str,
             return _fail(f"outcome must be one of "
                          f"{[o for o in SUBMISSION_OUTCOMES if o != 'pending']}")
         p = s.project
-        s.outcome = outcome
-        s.outcome_at = utcnow()
-        log_event(db, p, user, "submission_outcome",
-                  payload=json.dumps({"venue": s.venue, "outcome": outcome,
-                                      "attempt": s.attempt}))
+        when = None
+        if outcome_at.strip():
+            try:
+                when = datetime.strptime(outcome_at.strip(), "%Y-%m-%d")
+            except ValueError:
+                return _fail("outcome_at must be YYYY-MM-DD")
+        # Same function the web route uses. Two implementations of one rule is
+        # one implementation and one bug: this surface used to close an attempt
+        # on major_revision and never move the project's status.
+        apply_outcome(db, s, outcome, user, when)
         if note.strip():
             db.add(Note(project_id=p.id, user_id=user.id, body_md=note.strip(),
                         source="mcp", ts=utcnow()))
             log_event(db, p, user, "note_added")
         db.commit()
         return {"ok": True, "venue": s.venue, "outcome": outcome,
+                "attempt_still_open": outcome in KEEPS_ATTEMPT_OPEN,
+                "project_status": p.status,
                 "days_in_review": (s.outcome_at - s.submitted_at).days
-                if s.submitted_at else None}
+                if s.outcome_at and s.submitted_at else None}
     except (LookupError, PermissionError) as e:
         return _fail(str(e))
     finally:

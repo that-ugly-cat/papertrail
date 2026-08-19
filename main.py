@@ -39,7 +39,8 @@ from models import (
     get_db, has_role, role_for, workspaces_of,
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
-    last_event_at, log_event, open_submission, slugify, snap, user_workspaces,
+    apply_outcome, last_event_at, log_event, open_submission, slugify, snap,
+    user_workspaces,
     utcnow, visible_links, wiki_url,
 )
 
@@ -998,34 +999,21 @@ def edit_submission(slug: str, pid: int, sid: int, venue: str = Form(...),
 
 @app.post("/w/{slug}/p/{pid}/submissions/{sid}/outcome")
 def sub_outcome(slug: str, pid: int, sid: int, outcome: str = Form(...),
-                note: str = Form(""),
+                note: str = Form(""), outcome_at: str = Form(""),
                 acc: WorkspaceAccess = Depends(workspace_dep("write"))):
     db = acc.db
     p = _project_or_404(acc, pid)
     s = db.query(Submission).filter(Submission.id == sid,
                                     Submission.project_id == p.id).first()
-    if s and outcome in SUBMISSION_OUTCOMES:
-        if outcome in KEEPS_ATTEMPT_OPEN:
-            s.notes = _append_milestone(s.notes, outcome)
-        else:
-            s.outcome = outcome
-            s.outcome_at = utcnow() if outcome != "pending" else None
-        log_event(db, p, acc.user, "submission_outcome",
-                  payload=json.dumps({"venue": s.venue, "outcome": outcome,
-                                      "attempt": s.attempt,
-                                      "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
-        # A closing outcome moves the card too: leaving it in `submitted` after
-        # a rejection is the drift that produced the Smoking bans mismatch.
-        if outcome not in KEEPS_ATTEMPT_OPEN and p.status in ("submitted",
-                                                              "in_revision"):
-            new = "published" if outcome == "accept" else "ready"
-            log_event(db, p, acc.user, "status_change",
-                      from_status=p.status, to_status=new)
-            p.status = new
-        elif outcome in KEEPS_ATTEMPT_OPEN and p.status == "submitted":
-            log_event(db, p, acc.user, "status_change",
-                      from_status=p.status, to_status="in_revision")
-            p.status = "in_revision"
+    if s:
+        # The date on the letter, when it is not the date you are typing it in.
+        when = None
+        if outcome_at.strip():
+            try:
+                when = datetime.strptime(outcome_at.strip(), "%Y-%m-%d")
+            except ValueError:
+                when = None
+        apply_outcome(db, s, outcome, acc.user, when)
         if note.strip():
             db.add(Note(project_id=p.id, user_id=acc.user.id,
                         body_md=note.strip(), source="web", ts=utcnow()))
