@@ -659,8 +659,7 @@ def append_milestone(existing: str | None, outcome: str,
     """A revision round recorded on the attempt it belongs to, without closing
     it: the paper is still at that venue and the clock is still running."""
     line = f"{(when or utcnow()):%Y-%m-%d}: {OUTCOME_LABELS.get(outcome, outcome)}"
-    return "
-".join(filter(None, [existing, line]))
+    return "\n".join(filter(None, [existing, line]))
 
 
 def apply_outcome(db, submission: "Submission", outcome: str, user: User | None,
