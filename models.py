@@ -573,6 +573,10 @@ def seed_involvements(db, dry_run: bool = True) -> dict:
     for u in users:
         by_key[canonical(u.name)] = u
     added, skipped = 0, 0
+    # Tracked so the dry run can answer the same question as the real one.
+    # A rehearsal that reports a number the live run would not produce is worse
+    # than no rehearsal: it is a wrong answer wearing a safe label.
+    would_own = {i.project_id for i in db.query(Involvement).all()}
     for a in db.query(Authorship).filter(Authorship.role == "lead").all():
         project = a.project
         if project is None or project.deleted_at is not None:
@@ -591,12 +595,13 @@ def seed_involvements(db, dry_run: bool = True) -> dict:
         if not dry_run:
             db.add(Involvement(project_id=project.id, user_id=user.id,
                                kind="lead", created_by=user.id))
+        would_own.add(project.id)
         added += 1
     if not dry_run:
         db.commit()
     orphans = [p.id for p in db.query(Project)
                .filter(Project.deleted_at == None).all()          # noqa: E711
-               if not p.involvements]
+               if p.id not in would_own]
     return {"added": added, "leads_without_account": skipped,
             "projects_without_owner": orphans}
 
