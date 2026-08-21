@@ -25,6 +25,7 @@ import auth
 from models import (
     KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
     Note, Project, SessionLocal, Submission, apply_outcome, effective_status,
+    flag_of,
     OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
     last_event_at, log_event, snap, user_workspaces, utcnow, visible_links,
 )
@@ -50,7 +51,12 @@ def _fail(msg: str) -> dict:
 
 def _project_brief(p: Project, ws) -> dict:
     eff = effective_status(p)
+    # The caller's own dot, never anyone else's: flags are per user, and the
+    # key the model is holding names exactly one of them.
+    flag = flag_of(p, auth.current_caller())
     return {
+        "flagged": flag is not None,
+        "flag_note": flag.note if flag else None,
         "id": p.id,
         "title": p.final_title or p.title,
         "status": p.status,
@@ -87,15 +93,21 @@ def list_workspaces() -> dict:
 
 @mcp.tool()
 def list_projects(workspace: str, status: str = "", author: str = "",
-                  stale_days: int = 0, limit: int = 50) -> dict:
+                  stale_days: int = 0, flagged: bool = False,
+                  limit: int = 50) -> dict:
     """
     Projects in a workspace, newest activity first.
 
     status: one of idea, developed, active, writing, ready, submitted,
-            published, archived. Empty means any.
+            under_review, in_revision, published, archived. Empty means any.
+            `submitted` is on an editor's desk, `under_review` is with the
+            reviewers — same attempt, same clock, different kind of waiting.
     author: substring of a person's name.
     stale_days: only projects with no event for at least this many days. This is
             the question the old Notion board could not answer at all.
+    flagged: only the ones the caller marked as needing their attention. The
+            flag is private to whoever set it — this reads the key-holder's
+            own dots and nobody else's, and it is set from the web app.
     """
     db = SessionLocal()
     try:
@@ -112,6 +124,9 @@ def list_projects(workspace: str, status: str = "", author: str = "",
         if stale_days:
             rows = [p for p in rows
                     if (utcnow() - (last_event_at(p) or p.created_at)).days >= stale_days]
+        if flagged:
+            me = auth.current_caller()
+            rows = [p for p in rows if flag_of(p, me) is not None]
         rows.sort(key=lambda p: last_event_at(p) or p.created_at, reverse=True)
         return {"workspace": ws.slug, "count": len(rows),
                 "projects": [_project_brief(p, ws) for p in rows[:limit]]}
@@ -265,6 +280,10 @@ def set_status(workspace: str, project_id: int, status: str,
 
     Moving into `submitted` without opening a submission leaves the venue
     unknown; prefer open_submission, which does both.
+
+    `submitted` → `under_review` is the ordinary next step and means the paper
+    reached the reviewers. It is a stage marker on the same attempt: it opens
+    nothing, closes nothing, and the day count keeps running.
     """
     db = SessionLocal()
     try:
@@ -304,8 +323,9 @@ def open_submission(workspace: str, project_id: int, venue: str,
     `venue` is a journal, but also a book publisher, a preprint server or a
     platform — whatever the piece was actually sent to.
 
-    Also moves the project to `submitted`, because a paper in review is not
-    still "ready".
+    Also moves the project to `submitted`, because a paper on an editor's desk
+    is not still "ready". Move it on to `under_review` with set_status once the
+    reviewers have it.
     """
     db = SessionLocal()
     try:

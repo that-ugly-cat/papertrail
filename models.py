@@ -44,7 +44,7 @@ def utcnow() -> datetime:
 # Declared statuses. `dormant` is NOT here: it is computed from the event log
 # (SPEC.md §5). Order matters — it drives the kanban column order.
 STATUSES = ["idea", "developed", "active", "writing", "ready", "submitted",
-            "in_revision", "published", "archived"]
+            "under_review", "in_revision", "published", "archived"]
 
 STATUS_LABELS = {
     "idea":      "Idea",
@@ -53,15 +53,33 @@ STATUS_LABELS = {
     "writing":   "Writing up",
     "ready":     "Ready",
     "submitted": "Submitted",
+    "under_review": "Under review",
     "in_revision": "In revision",
     "published": "Published",
     "archived":  "Archived",
 }
 
 # `submitted` is a *declared* status only while a project has no open Submission
-# row. Once one exists, effective_status() overrides the label with the venue and
-# the elapsed days. It is kept as a column so the board has somewhere to put a
-# paper the moment it goes out, before anyone fills in the venue.
+# row. Once one exists, effective_status() adds the venue and the elapsed days to
+# the label. It is kept as a column so the board has somewhere to put a paper the
+# moment it goes out, before anyone fills in the venue.
+
+# The manuscript is at a venue and out of the authors' hands. Two columns, one
+# situation, and the difference between them is the one thing you actually want
+# to know while you wait: `submitted` is on an editor's desk and can still come
+# straight back as a desk reject; `under_review` is with reviewers, which is
+# slower, more likely to end in a revision, and a different kind of waiting.
+#
+# Nothing derives the boundary, and that is deliberate. Only the submission
+# system knows when a paper reaches the reviewers, so a person moves the card
+# when they read it there — the same rule as every other declared status. Both
+# columns share one open Submission, one venue and one clock: moving between
+# them is a stage marker, never a new attempt and never an outcome.
+AT_VENUE = ("submitted", "under_review")
+
+# ...plus `in_revision`, where the reviews came back but the attempt is still
+# open at the same venue. The three together are "there is a live attempt".
+LIVE_ATTEMPT = AT_VENUE + ("in_revision",)
 
 ROLES = ["read", "write", "admin"]
 ROLE_RANK = {"read": 1, "write": 2, "admin": 3}
@@ -320,6 +338,8 @@ class Project(Base):
                                cascade="all, delete-orphan")
     deadlines   = relationship("Deadline", back_populates="project",
                                cascade="all, delete-orphan")
+    flags       = relationship("Flag", back_populates="project",
+                               cascade="all, delete-orphan")
 
 
 class ProjectWorkspace(Base):
@@ -417,6 +437,42 @@ class Involvement(Base):
 
 INVOLVEMENT_KINDS = ["lead", "watching"]
 INVOLVEMENT_LABELS = {"lead": "I lead this", "watching": "Watching"}
+
+
+class Flag(Base):
+    """
+    A yellow dot: *this one needs my nose in it*.
+
+    Deliberately not a column on `Involvement`, though the two are neighbours.
+    Involvement is a durable stance — I drive this, I keep an eye on that — and
+    it is meant to last as long as the project does. A flag is the opposite kind
+    of thing: it is raised, it is dealt with, it goes out. Living in the same row
+    would mean that flagging a project you neither lead nor watch requires
+    inventing a `kind` for it, which would quietly put it on your board, and
+    that clearing the flag would leave that behind.
+
+    Per user and only per user: `user_id` is whose dot it is, and it is always
+    the person who put it there. Flagging something *for someone else* is a
+    different feature with a different question behind it — who decides what is
+    on my plate — so it is not half-built here.
+
+    Like Involvement, it is not a permission: you can only flag what you can
+    already see, and the workspace remains the only thing that grants access.
+    Absence of a row is how "not flagged" is said, the same rule as Membership
+    in SPEC §3.
+    """
+    __tablename__ = "flags"
+    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
+    id         = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # Why it is flagged. Optional, and never asked for by the one-click toggle:
+    # a dot you have to explain is a dot you stop using.
+    note       = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    project = relationship("Project", back_populates="flags")
+    user    = relationship("User")
 
 
 class Event(Base):
@@ -553,6 +609,20 @@ def involvement_of(project: "Project", user: "User") -> "Involvement | None":
         if i.user_id == user.id:
             return i
     return None
+
+
+def flag_of(project: "Project", user: "User") -> "Flag | None":
+    for f in project.flags:
+        if f.user_id == user.id:
+            return f
+    return None
+
+
+def flagged_ids(db, user: "User") -> set[int]:
+    """The caller's flagged project ids, for the board and its filters: one
+    query per view instead of one per card."""
+    return {row[0] for row in
+            db.query(Flag.project_id).filter(Flag.user_id == user.id).all()}
 
 
 def seed_involvements(db, dry_run: bool = True) -> dict:
@@ -718,21 +788,31 @@ def effective_status(project: Project) -> dict:
             # a revision round. Same fact, different word, and the day count
             # keeps running because the venue still has it.
             back_with_authors = declared in ("writing", "active", "in_revision")
-            label = "In revision" if back_with_authors else "Under review"
+            if back_with_authors:
+                label = "In revision"
+            elif declared in AT_VENUE:
+                # The column already says which kind of waiting this is, so the
+                # card says the same word rather than a second one. Before the
+                # split there was one column and two labels inside it, which is
+                # the confusion the split exists to end.
+                label = STATUS_LABELS[declared]
+            else:
+                # Declared anywhere else with an attempt open: the word is worth
+                # shouting precisely because it contradicts the column.
+                label = "Under review"
             detail = f"{s.venue} · {s.days_open}d"
             # Anything else is stale. `ready` with an open attempt is the common
             # one and the easiest to miss: you cannot be ready to submit
             # something that is already under review. It happens when the note
             # gets written and the card does not get moved, which is exactly the
             # drift this flag exists to surface.
-            diverges = declared not in ("submitted", "in_revision",
-                                        "writing", "active")
+            diverges = declared not in LIVE_ATTEMPT + ("writing", "active")
         else:
             last = last_submission(project)
             if last and last.outcome == "accept":
                 label = "Accepted"
                 detail = last.venue
-                diverges = declared not in ("submitted", "ready", "published")
+                diverges = declared not in AT_VENUE + ("ready", "published")
             elif last and last.outcome in ("desk_reject", "reject_after_review"):
                 detail = f"bounced from {last.venue}"
     return {"label": label, "detail": detail, "diverges": diverges}
@@ -793,13 +873,12 @@ def apply_outcome(db, submission: "Submission", outcome: str, user: User | None,
                                   "closed": outcome not in KEEPS_ATTEMPT_OPEN}))
     # A closing outcome moves the card too: leaving it in `submitted` after a
     # rejection is the drift that produced the Smoking bans mismatch.
-    if outcome not in KEEPS_ATTEMPT_OPEN and p.status in ("submitted",
-                                                          "in_revision"):
+    if outcome not in KEEPS_ATTEMPT_OPEN and p.status in LIVE_ATTEMPT:
         new = "published" if outcome == "accept" else "ready"
         log_event(db, p, user, "status_change", from_status=p.status,
                   to_status=new)
         p.status = new
-    elif outcome in KEEPS_ATTEMPT_OPEN and p.status == "submitted":
+    elif outcome in KEEPS_ATTEMPT_OPEN and p.status in AT_VENUE:
         log_event(db, p, user, "status_change", from_status=p.status,
                   to_status="in_revision")
         p.status = "in_revision"

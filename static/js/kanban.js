@@ -5,9 +5,11 @@
  * put back if the server refuses, so a failed move never leaves the board
  * showing something the database does not agree with.
  *
- * Crossing the `submitted` boundary opens a dialog first: going in asks for the
- * venue, coming out asks what happened. That is the one moment the information
- * actually exists in someone's head — a form that asks later gets left empty.
+ * Crossing the venue boundary opens a dialog first: going in asks for the venue,
+ * coming out asks what happened. That is the one moment the information actually
+ * exists in someone's head — a form that asks later gets left empty. Sliding
+ * between Submitted and Under review is inside the boundary, not across it, and
+ * asks nothing: same venue, same attempt, same clock.
  */
 (function () {
   const board = document.getElementById('kanban');
@@ -53,7 +55,7 @@
     return el ? JSON.parse(el.textContent) : null;
   })();
 
-  /* Leaving `submitted` is two different events depending on which way the card
+  /* Leaving the venue is two different events depending on which way the card
      went. Left: the paper came back — rejections and revision requests. Right to
      Published: it was accepted, and nothing else. Right to Archived: it was
      given up on. Offering all seven outcomes everywhere invites the wrong one. */
@@ -190,11 +192,14 @@
       }
 
       let extra = {};
-      const REVIEW = ['submitted', 'in_revision'];
-      if (status !== fromStatus &&
+      /* Mirrors AT_VENUE / LIVE_ATTEMPT in models.py. */
+      const AT_VENUE = ['submitted', 'under_review'];
+      const REVIEW = AT_VENUE.concat(['in_revision']);
+      const withinVenue = AT_VENUE.includes(status) && AT_VENUE.includes(fromStatus);
+      if (status !== fromStatus && !withinVenue &&
           (REVIEW.includes(status) || REVIEW.includes(fromStatus))) {
         extra = await askAboutSubmission(
-          status === 'submitted' ? 'in' : 'out',
+          AT_VENUE.includes(status) ? 'in' : 'out',
           card.querySelector('.pcard-title').textContent.trim(),
           status, fromStatus);
         if (extra === null) { rollback(false); return; }   /* cancelled */

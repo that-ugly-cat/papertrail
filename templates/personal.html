@@ -7,7 +7,10 @@
   <div>
     <h1>My work</h1>
     <p class="muted small">
-      {% if scope == 'authored' %}
+      {% if scope == 'flagged' %}
+      {{ total }} project{{ '' if total == 1 else 's' }} you put a dot on —
+      whatever you decided needs your nose in it, wherever it lives.
+      {% elif scope == 'authored' %}
       {{ total }} project{{ '' if total == 1 else 's' }} your name is on — a
       bibliography, not a work list.
       {% else %}
@@ -21,7 +24,8 @@
        papers with twenty-one authors that nobody here is driving. #}
     <p class="scope-tabs small">
       {% for key, label in [('involved', 'On my board'), ('lead', 'I lead'),
-                            ('watching', 'Watching'), ('authored', "My name is on")] %}
+                            ('watching', 'Watching'), ('flagged', 'Flagged'),
+                            ('authored', "My name is on")] %}
       <a class="scope-tab {% if scope == key %}on{% endif %}"
          href="/me?scope={{ key }}{% if q %}&q={{ q }}{% endif %}">{{ label }}
         <span class="muted">{{ counts.get(key, 0) }}</span></a>
@@ -74,8 +78,12 @@
       {% for p in columns[st] %}
       {% set eff = effective_status(p) %}
       {% set can = role_of[p.id] in ('write', 'admin') %}
-      <article class="pcard" draggable="{{ 'true' if can else 'false' }}"
+      <article class="pcard{% if p.id in my_flags %} flagged{% endif %}"
+               draggable="{{ 'true' if can else 'false' }}"
                data-id="{{ p.id }}" data-slug="{{ slug_of[p.id] }}">
+        <button type="button" class="pcard-flag" data-flag
+                aria-pressed="{{ 'true' if p.id in my_flags else 'false' }}"
+                title="Needs my nose in it">●</button>
         <a class="pcard-title" href="/w/{{ slug_of[p.id] }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
         {% if eff.detail %}<div class="pcard-eff">{{ eff.label }} · {{ eff.detail }}</div>{% endif %}
         <div class="pcard-badges">
@@ -169,8 +177,9 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/kanban.js?v=6"></script>
+<script src="/static/js/kanban.js?v=7"></script>
 <script src="/static/js/notes.js?v=1"></script>
 <script src="/static/js/projectmodal.js?v=4"></script>
+<script src="/static/js/flags.js?v=1"></script>
 <script src="/static/js/hscroll.js?v=1"></script>
 {% endblock %}

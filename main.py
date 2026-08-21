@@ -30,12 +30,14 @@ from auth import (
     verify_password, workspace_dep,
 )
 from models import (
+    AT_VENUE, LIVE_ATTEMPT,
     AUTHOR_ROLES, ApiKey, KEEPS_ATTEMPT_OPEN, ProjectWorkspace, LINK_KINDS, OUTCOME_LABELS,
     OUTCOMES_ARCHIVED, OUTCOMES_BACK, OUTCOMES_PUBLISHED, OUTCOMES_REVISION,
     OUTPUT_TYPES, OUTPUT_TYPE_LABELS, ROLES, STATUSES,
     STATUS_LABELS, Involvement, INVOLVEMENT_KINDS, INVOLVEMENT_LABELS,
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, canonical, effective_status,
+    Flag, flag_of, flagged_ids,
     get_db, has_role, involvement_of, role_for, workspaces_of,
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
@@ -257,7 +259,7 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
     """
     dormant = 1 if str(dormant).strip() not in ("", "0") else 0
     scopes = user_workspaces(db, user)
-    if scope not in ("involved", "lead", "watching", "authored"):
+    if scope not in ("involved", "lead", "watching", "authored", "flagged"):
         scope = "involved"
     projects, allowed = _my_projects(db, user, scope)
     if not allowed:
@@ -267,7 +269,7 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
              "q": q or "", "dormant": dormant, "scopes": [], "ws_filter": "",
              "venues": [], "role_of": {}, "is_dormant": lambda p: False,
              "mine": personal_workspace(db, user), "writable": [],
-             "scope": scope, "counts": {}})
+             "scope": scope, "counts": {}, "my_flags": set()})
 
     if ws_filter:
         projects = [p for p in projects
@@ -298,6 +300,7 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
          "mine": personal_workspace(db, user),
          "scope": scope,
          "counts": _scope_counts(db, user, allowed),
+         "my_flags": flagged_ids(db, user),
          "slug_of": {p.id: allowed[p.workspace_id][0].slug for p in projects},
          "name_of": {p.id: allowed[p.workspace_id][0].name for p in projects},
          "role_of": {p.id: allowed[p.workspace_id][1] for p in projects},
@@ -318,7 +321,19 @@ def _scope_counts(db: Session, user: User, allowed: dict) -> dict:
         "watching": len([i for i in inv
                          if i.kind == "watching" and i.project_id in live]),
         "authored": len(_authored_projects(db, user, allowed)),
+        "flagged": len(_flagged_projects(db, user, allowed)),
     }
+
+
+def _flagged_projects(db: Session, user: User, allowed: dict):
+    """Projects the caller has put a dot on. Independent of involvement on
+    purpose: the whole point of a flag is that it can land on something you had
+    no stake in until this morning."""
+    rows = (db.query(Project).join(Flag, Flag.project_id == Project.id)
+              .filter(Flag.user_id == user.id,
+                      Project.deleted_at == None)                 # noqa: E711
+              .all())
+    return [p for p in rows if p.workspace_id in allowed]
 
 
 def _authored_projects(db: Session, user: User, allowed: dict):
@@ -352,6 +367,8 @@ def _my_projects(db: Session, user: User, scope: str = "involved"):
 
     if scope == "authored":
         return _authored_projects(db, user, allowed), allowed
+    if scope == "flagged":
+        return _flagged_projects(db, user, allowed), allowed
 
     rows = (db.query(Project).join(Involvement,
                                    Involvement.project_id == Project.id)
@@ -439,7 +456,7 @@ def personal_done(request: Request, user: User = Depends(get_current_user),
 @app.get("/w/{slug}", response_class=HTMLResponse)
 def board(request: Request, slug: str, person: str = "",
           q: str | None = None, dormant: str = "", mismatch: str = "",
-          deleted: str = "", title: str = "",
+          flagged: str = "", deleted: str = "", title: str = "",
           acc: WorkspaceAccess = Depends(workspace_dep("read"))):
     db, ws = acc.db, acc.workspace
 
@@ -453,6 +470,9 @@ def board(request: Request, slug: str, person: str = "",
 
     person, dormant = as_int(person), as_int(dormant)
     mismatch, deleted = as_int(mismatch), as_int(deleted)
+    flagged = as_int(flagged)
+    # Whose flags these are is never in question: the caller's, always.
+    my_flags = flagged_ids(db, acc.user)
 
     projects = (_projects_in(db, ws)
                 .order_by(Project.position, Project.id).all())
@@ -470,6 +490,8 @@ def board(request: Request, slug: str, person: str = "",
         projects = [p for p in projects if is_dormant(p, ws.dormant_after_days)]
     if mismatch:
         projects = [p for p in projects if effective_status(p)["diverges"]]
+    if flagged:
+        projects = [p for p in projects if p.id in my_flags]
 
     columns = {s: [] for s in STATUSES}
     for p in projects:
@@ -490,6 +512,9 @@ def board(request: Request, slug: str, person: str = "",
          "can_write": acc.can_write, "can_admin": acc.can_admin,
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant, "mismatch": mismatch,
+         "flagged": flagged, "my_flags": my_flags,
+         "n_flagged": len([p for p in _projects_in(db, ws).all()
+                           if p.id in my_flags]),
          "just_deleted": deleted, "just_deleted_title": title,
          "n_trash": _projects_in(db, ws, deleted=True).count(),
          "n_mismatch": sum(1 for p in (_projects_in(db, ws).all())
@@ -528,9 +553,15 @@ async def move_project(slug: str, request: Request,
     reordering inside a column is not a transition and must not pollute the
     event log, which is what dormancy and staleness are read from.
 
-    Crossing into `submitted` opens a Submission; crossing out of it records the
-    outcome on the open one. That is the moment the information exists — asking
-    for it later means never getting it.
+    Crossing into `submitted`/`under_review` from outside opens a Submission;
+    crossing out of them records the outcome on the open one. That is the moment
+    the information exists — asking for it later means never getting it.
+
+    Moving *between* the two, on the other hand, asks nothing and opens nothing:
+    the paper is at the same venue on the same clock and has merely reached the
+    reviewers. Treating that as a new attempt would leave the first one pending
+    for ever, which is the same bug the resubmission branch below exists to
+    avoid.
     """
     db = acc.db
     body = await request.json()
@@ -545,7 +576,7 @@ async def move_project(slug: str, request: Request,
         log_event(db, p, acc.user, "status_change",
                   from_status=old_status, to_status=new_status)
 
-        if new_status == "submitted":
+        if new_status in AT_VENUE and old_status not in AT_VENUE:
             venue = snap(body.get("venue"), known_venues(db, acc.workspace)) or ""
             when = utcnow()
             if body.get("submitted_at"):
@@ -586,7 +617,7 @@ async def move_project(slug: str, request: Request,
                                               "attempt": s.attempt,
                                               "closed": False}))
 
-        elif old_status in ("submitted", "in_revision"):
+        elif old_status in LIVE_ATTEMPT and new_status not in AT_VENUE:
             outcome = body.get("outcome")
             s = open_submission(p)
             if s and outcome in SUBMISSION_OUTCOMES and outcome != "pending":
@@ -649,6 +680,7 @@ def project_page(request: Request, slug: str, pid: int, partial: int = 0,
          "project_ws": workspaces_of(p),
          "links": visible_links(p, acc.user),
          "involvement": involvement_of(p, acc.user),
+         "flag": flag_of(p, acc.user),
          "INVOLVEMENT_KINDS": INVOLVEMENT_KINDS,
          "INVOLVEMENT_LABELS": INVOLVEMENT_LABELS,
          "ws_options": [(w, r) for w, r in user_workspaces(acc.db, acc.user)
@@ -936,6 +968,64 @@ def set_involvement(slug: str, pid: int, kind: str = Form(""),
         log_event(db, p, acc.user, "field_changed",
                   payload=json.dumps({"involvement": kind}))
     db.commit()
+    return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
+
+
+def _toggle_flag(db: Session, p: Project, user: User,
+                 want: bool | None = None, note: str | None = None) -> bool:
+    """
+    Raise or clear the caller's dot on a project. Returns the state it ended in.
+
+    `want=None` means toggle, which is what the one-click button on a card
+    sends: the button knows what it is showing, but the row is the only thing
+    that knows the truth, and two clicks racing each other should still converge.
+
+    No event is written, and that is not an oversight. `Event` is the spine
+    dormancy and staleness are read from (models.py §Event); a private dot that
+    made a project look alive to the whole workspace would be a bug wearing the
+    costume of a feature.
+    """
+    row = flag_of(p, user)
+    on = row is not None
+    target = (not on) if want is None else want
+    if target and not on:
+        db.add(Flag(project_id=p.id, user_id=user.id,
+                    note=(note or "").strip() or None))
+    elif target and on and note is not None:
+        row.note = note.strip() or None
+    elif not target and on:
+        db.delete(row)
+    db.commit()
+    return target
+
+
+@app.post("/api/w/{slug}/p/{pid}/flag")
+async def api_flag(slug: str, pid: int, request: Request,
+                   acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """
+    The card button. Toggles, answers JSON, never redirects.
+
+    `read` for the same reason as involvement above: a note to myself about
+    someone else's paper must not require the right to change that paper.
+    """
+    p = _project_or_404(acc, pid)
+    body = {}
+    with contextlib.suppress(Exception):
+        body = await request.json()
+    want = body.get("flagged")
+    on = _toggle_flag(acc.db, p, acc.user,
+                      want if isinstance(want, bool) else None)
+    return {"ok": True, "flagged": on}
+
+
+@app.post("/w/{slug}/p/{pid}/flag")
+def set_flag(slug: str, pid: int, flagged: str = Form(""),
+             note: str = Form(""),
+             acc: WorkspaceAccess = Depends(workspace_dep("read"))):
+    """The form inside the project card, where the dot can also carry a why."""
+    p = _project_or_404(acc, pid)
+    want = str(flagged).strip() not in ("", "0")
+    _toggle_flag(acc.db, p, acc.user, want, note if want else None)
     return RedirectResponse(f"/w/{slug}/p/{pid}", status_code=302)
 
 

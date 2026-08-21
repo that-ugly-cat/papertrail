@@ -29,6 +29,12 @@
     <input type="checkbox" name="dormant" value="1" {% if dormant %}checked{% endif %}>
     dormant only ({{ dormant_days }}d)
   </label>
+  {% if n_flagged or flagged %}
+  <label class="check" title="Projects you put a dot on">
+    <input type="checkbox" name="flagged" value="1" {% if flagged %}checked{% endif %}>
+    flagged ({{ n_flagged }})
+  </label>
+  {% endif %}
   {% if n_mismatch %}
   <label class="check" title="The column disagrees with the submission record">
     <input type="checkbox" name="mismatch" value="1" {% if mismatch %}checked{% endif %}>
@@ -36,7 +42,7 @@
   </label>
   {% endif %}
   <button class="btn btn-ghost" type="submit">Filter</button>
-  {% if q or sel_person or dormant or mismatch %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
+  {% if q or sel_person or dormant or mismatch or flagged %}<a class="btn btn-ghost" href="/w/{{ ws.slug }}">Clear</a>{% endif %}
 </form>
 
 <div class="kanban" id="kanban" data-slug="{{ ws.slug }}" data-canwrite="{{ 1 if can_write else 0 }}">
@@ -50,8 +56,14 @@
     <div class="col-body" data-status="{{ st }}">
       {% for p in columns[st] %}
       {% set eff = effective_status(p) %}
-      <article class="pcard" draggable="{{ 'true' if can_write else 'false' }}"
+      <article class="pcard{% if p.id in my_flags %} flagged{% endif %}"
+               draggable="{{ 'true' if can_write else 'false' }}"
                data-id="{{ p.id }}">
+        {# One click, no dialog, no reload. The dot is always there, dim when
+           off, so raising and clearing cost exactly the same gesture. #}
+        <button type="button" class="pcard-flag" data-flag
+                aria-pressed="{{ 'true' if p.id in my_flags else 'false' }}"
+                title="Needs my nose in it">●</button>
         <a class="pcard-title" href="/w/{{ ws.slug }}/p/{{ p.id }}">{{ p.final_title or p.title }}</a>
         {% if eff.detail %}<div class="pcard-eff">{{ eff.label }} · {{ eff.detail }}</div>{% endif %}
         <div class="pcard-meta">
@@ -161,8 +173,9 @@
 
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/kanban.js?v=6"></script>
+<script src="/static/js/kanban.js?v=7"></script>
 <script src="/static/js/notes.js?v=1"></script>
 <script src="/static/js/projectmodal.js?v=4"></script>
+<script src="/static/js/flags.js?v=1"></script>
 <script src="/static/js/hscroll.js?v=1"></script>
 {% endblock %}

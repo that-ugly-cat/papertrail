@@ -166,6 +166,7 @@ textarea { resize: vertical; }
 .dot-writing { background: #ed8936; }
 .dot-ready { background: #ecc94b; }
 .dot-submitted { background: #38b2ac; }
+.dot-under_review { background: #319795; }
 .dot-in_revision { background: #d69e2e; }
 .dot-published { background: var(--ok); }
 .dot-archived { background: #4a5568; }
@@ -187,6 +188,27 @@ textarea { resize: vertical; }
 .pcard-meta { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .who { font-size: 11px; color: var(--muted-2); }
 .pcard-badges { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* ── the yellow dot ──
+   Always rendered, so raising and clearing are the same gesture in the same
+   place; dim until it means something. The flagged card is marked with an
+   inset shadow rather than a real border, which would shift every line by 3px
+   the moment you clicked. */
+.pcard { position: relative; }
+.pcard-title { padding-right: 16px; }
+.pcard-flag {
+  position: absolute; top: 7px; right: 8px;
+  background: none; border: 0; padding: 0; line-height: 1;
+  font-size: 12px; cursor: pointer;
+  color: var(--muted-3); opacity: .55; transition: opacity .12s, color .12s;
+}
+.pcard-flag:hover { opacity: 1; color: var(--warn); }
+.pcard-flag[aria-pressed="true"] { color: var(--warn); opacity: 1; }
+.pcard-flag:disabled { cursor: default; }
+.pcard.flagged { box-shadow: inset 3px 0 0 var(--warn); }
+
+.card-flagged { box-shadow: inset 3px 0 0 var(--warn); }
+.flag-form { display: flex; align-items: center; gap: 8px; }
 
 .badge {
   font-size: 11px; padding: 1px 7px; border-radius: 999px;
