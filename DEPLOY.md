@@ -121,11 +121,15 @@ papertrail.borant.eu {
 }
 ```
 
-Il secondo fattore su `/admin`, se lo si vuole, **lo mette il gate**: è una
-`policy` con `path_prefix = /admin` e `level = two_factor` nel suo pannello, e
-non richiede né una riga qui né un reload di Caddy. Le colonne `totp_*` di
-questa tabella `users` non sono mai state collegate a una rotta e restano
-inerti.
+**Qui non c'è un secondo fattore, ed è una scelta.** Ce n'era uno abbozzato
+nello schema — due colonne `totp_*` mai collegate a una rotta — e la tabella
+lasciava intendere una protezione che l'app non applicava: sono state tolte. Il
+pannello `/admin` crea utenti e workspace, non apre dati che il resto dell'app
+non apra già, quindi non merita un gradino in più.
+
+Se un giorno servisse, **lo mette il gate** e non questo codice: è una `policy`
+con `path_prefix` e `level = two_factor` nel suo pannello, senza una riga qui e
+senza un reload di Caddy.
 
 **Prima di accendere, lega gli utenti esistenti e leggi il report:**
 

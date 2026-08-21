@@ -192,8 +192,6 @@ class User(Base):
     # changes with an institution, and this is what re-finds someone's
     # memberships across that change.
     borant_sub            = Column(String, unique=True, nullable=True, index=True)
-    totp_secret_encrypted = Column(String, nullable=True)
-    totp_enabled          = Column(Boolean, default=False)
     # Global admin creates users and workspaces. It does NOT imply access to
     # workspace content: that still requires a Membership row (SPEC.md §3).
     is_admin              = Column(Boolean, default=False)
@@ -991,8 +989,13 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN borant_sub VARCHAR",
     "CREATE UNIQUE INDEX ix_users_borant_sub ON users (borant_sub)",
     "ALTER TABLE users ADD COLUMN last_login DATETIME",
-    "ALTER TABLE users ADD COLUMN totp_secret_encrypted VARCHAR",
-    "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0",
+    # Second factor removed rather than left half-built (21/8/2026). These two
+    # columns had been carried since an early schema and never wired to a
+    # route, so the table implied a protection the app did not apply. They were
+    # empty on every row. Where a second factor is wanted it belongs to the SSO
+    # gate in front, as a policy, which needs nothing here.
+    "ALTER TABLE users DROP COLUMN totp_secret_encrypted",
+    "ALTER TABLE users DROP COLUMN totp_enabled",
     "ALTER TABLE workspaces ADD COLUMN dormant_after_days INTEGER DEFAULT 180",
     "ALTER TABLE projects ADD COLUMN position INTEGER DEFAULT 0",
     "ALTER TABLE projects ADD COLUMN imported BOOLEAN DEFAULT 0",
