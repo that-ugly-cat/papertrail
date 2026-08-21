@@ -62,7 +62,10 @@
   function outcomesFor(toStatus, fromStatus) {
     if (!SETS) return [];
     if (toStatus === 'in_revision') return SETS.revision;
-    if (toStatus === 'published') return SETS.published;
+    /* Accepted and Published are the same move out of the venue — the letter
+       arrived. Which of the two columns it lands in is about whether it is out
+       yet, not about what the venue decided. */
+    if (toStatus === 'accepted' || toStatus === 'published') return SETS.published;
     if (toStatus === 'archived') return SETS.archived;
     return SETS.order.indexOf(toStatus) < SETS.order.indexOf(fromStatus)
       ? SETS.back : SETS.published;
@@ -75,7 +78,7 @@
     dlg.querySelector('#submitdlg-title').textContent =
       goingIn ? 'Sent out for review'
               : (toStatus === 'in_revision' ? 'Reviews came back'
-                 : toStatus === 'published' ? 'Accepted'
+                 : (toStatus === 'accepted' || toStatus === 'published') ? 'Accepted'
                  : toStatus === 'archived' ? 'Giving up on it'
                  : 'Back from review');
     dlg.querySelector('#submitdlg-sub').textContent = title;

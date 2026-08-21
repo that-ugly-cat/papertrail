@@ -44,7 +44,7 @@ def utcnow() -> datetime:
 # Declared statuses. `dormant` is NOT here: it is computed from the event log
 # (SPEC.md §5). Order matters — it drives the kanban column order.
 STATUSES = ["idea", "developed", "active", "writing", "ready", "submitted",
-            "under_review", "in_revision", "published", "archived"]
+            "under_review", "in_revision", "accepted", "published", "archived"]
 
 STATUS_LABELS = {
     "idea":      "Idea",
@@ -55,6 +55,7 @@ STATUS_LABELS = {
     "submitted": "Submitted",
     "under_review": "Under review",
     "in_revision": "In revision",
+    "accepted":  "Accepted",
     "published": "Published",
     "archived":  "Archived",
 }
@@ -80,6 +81,17 @@ AT_VENUE = ("submitted", "under_review")
 # ...plus `in_revision`, where the reviews came back but the attempt is still
 # open at the same venue. The three together are "there is a live attempt".
 LIVE_ATTEMPT = AT_VENUE + ("in_revision",)
+
+# `accepted` is its own column because the wait it names is real and nobody
+# controls it. The attempt is closed and won, the venue has nothing left to
+# decide, and yet the thing is not out: proofs, embargo, an issue that fills up
+# in four months. Collapsing it into `published` said something false the day it
+# was said, and `submitted` said something false too — which is how a paper
+# accepted at Bioethica Forum sat in a column labelled Submitted.
+#
+# It is deliberately NOT exempt from dormancy, unlike `published` and
+# `archived`. An accepted paper that never appears is exactly the thing worth
+# surfacing after six months; a published one has nowhere left to go.
 
 ROLES = ["read", "write", "admin"]
 ROLE_RANK = {"read": 1, "write": 2, "admin": 3}
@@ -132,7 +144,7 @@ def outcomes_for(from_status: str, to_status: str) -> list[str]:
     """Which outcomes make sense for this particular move out of `submitted`."""
     if to_status == "in_revision":
         return OUTCOMES_REVISION
-    if to_status == "published":
+    if to_status in ("accepted", "published"):
         return OUTCOMES_PUBLISHED
     if to_status == "archived":
         return OUTCOMES_ARCHIVED
@@ -812,7 +824,12 @@ def effective_status(project: Project) -> dict:
             if last and last.outcome == "accept":
                 label = "Accepted"
                 detail = last.venue
-                diverges = declared not in AT_VENUE + ("ready", "published")
+                # Before `accepted` was a column this had to tolerate the venue
+                # columns and `ready`, because there was nowhere right to be.
+                # Now there is, so the two places that are honest are the only
+                # two tolerated — and the cards still sitting elsewhere light up
+                # as a mismatch, which is the whole job of that flag.
+                diverges = declared not in ("accepted", "published")
             elif last and last.outcome in ("desk_reject", "reject_after_review"):
                 detail = f"bounced from {last.venue}"
     return {"label": label, "detail": detail, "diverges": diverges}
@@ -825,6 +842,9 @@ def last_event_at(project: Project) -> datetime | None:
 
 
 def is_dormant(project: Project, threshold_days: int) -> bool:
+    # `accepted` is not in this list on purpose: an accepted paper that never
+    # comes out is the most worth surfacing of all, and the only one where
+    # someone else's queue is the thing that stalled.
     if project.status in ("published", "archived"):
         return False
     last = last_event_at(project)
@@ -874,7 +894,11 @@ def apply_outcome(db, submission: "Submission", outcome: str, user: User | None,
     # A closing outcome moves the card too: leaving it in `submitted` after a
     # rejection is the drift that produced the Smoking bans mismatch.
     if outcome not in KEEPS_ATTEMPT_OPEN and p.status in LIVE_ATTEMPT:
-        new = "published" if outcome == "accept" else "ready"
+        # `accepted` and not `published`: an acceptance letter is not a DOI, and
+        # the gap between them is months of proofs and queues. Jumping the card
+        # straight to Published wrote a date that had not happened yet — and put
+        # the paper out of reach of dormancy while it was still waiting.
+        new = "accepted" if outcome == "accept" else "ready"
         log_event(db, p, user, "status_change", from_status=p.status,
                   to_status=new)
         p.status = new

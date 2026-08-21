@@ -168,6 +168,7 @@ textarea { resize: vertical; }
 .dot-submitted { background: #38b2ac; }
 .dot-under_review { background: #319795; }
 .dot-in_revision { background: #d69e2e; }
+.dot-accepted { background: #48bb78; }
 .dot-published { background: var(--ok); }
 .dot-archived { background: #4a5568; }
 

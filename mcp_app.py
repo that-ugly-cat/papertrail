@@ -99,9 +99,11 @@ def list_projects(workspace: str, status: str = "", author: str = "",
     Projects in a workspace, newest activity first.
 
     status: one of idea, developed, active, writing, ready, submitted,
-            under_review, in_revision, published, archived. Empty means any.
-            `submitted` is on an editor's desk, `under_review` is with the
-            reviewers — same attempt, same clock, different kind of waiting.
+            under_review, in_revision, accepted, published, archived. Empty
+            means any. `submitted` is on an editor's desk, `under_review` is
+            with the reviewers — same attempt, same clock, different kind of
+            waiting. `accepted` is won but not out yet: proofs, embargo, an
+            issue that fills up, and nobody here controls the queue.
     author: substring of a person's name.
     stale_days: only projects with no event for at least this many days. This is
             the question the old Notion board could not answer at all.
@@ -284,6 +286,10 @@ def set_status(workspace: str, project_id: int, status: str,
     `submitted` → `under_review` is the ordinary next step and means the paper
     reached the reviewers. It is a stage marker on the same attempt: it opens
     nothing, closes nothing, and the day count keeps running.
+
+    `accepted` is where a paper lands when the letter arrives, and `published`
+    only once it is actually out with a DOI. Recording an `accept` outcome moves
+    the card to `accepted` by itself, so this is rarely the tool to reach for.
     """
     db = SessionLocal()
     try:
@@ -406,7 +412,9 @@ def record_outcome(workspace: str, submission_id: int, outcome: str,
     system computes is wrong by however long it took to get round to typing it.
 
     A revision keeps the attempt open — the paper is still at that venue and the
-    clock is still running — and the project's status moves with the outcome.
+    clock is still running — and the project's status moves with the outcome:
+    `accept` lands the card in `accepted`, not in `published`, because an
+    acceptance letter is not a DOI and the gap between them is months.
     """
     db = SessionLocal()
     try:
