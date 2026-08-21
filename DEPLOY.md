@@ -45,7 +45,28 @@ cd /opt/apps/papertrail && git pull && docker compose up -d --build
 
 Le migrazioni sono additive e girano da sole all'avvio (`init_db()` in
 `models.py`): nessun passo manuale, ma anche nessun rollback automatico. Le
-colonne non si rinominano e non si droppano.
+colonne non si rinominano e non si droppano. Le **tabelle nuove** compaiono allo
+stesso modo, da `create_all()`, quindi una funzione che ne porta una non richiede
+niente in più di un `up -d --build` — controlla che ci sia, non darlo per fatto:
+
+```bash
+docker exec papertrail python -c "import sqlalchemy as sa, models; print(sorted(r[0] for r in models.engine.connect().execute(sa.text(\"select name from sqlite_master where type='table'\"))))"
+```
+
+**Se `git pull` si ferma su modifiche locali.** Succede quando qualcosa è stato
+corretto a mano direttamente qui. Prima di scartare, guarda **cosa** sia: il file
+può essere in CRLF, e allora il diff è un muro di rumore che nasconde le poche
+righe vere.
+
+```bash
+git diff --ignore-cr-at-eol --stat          # quante righe sono davvero cambiate
+git fetch origin
+git diff --ignore-cr-at-eol origin/main -- <file>   # vuoto = non perdi niente
+```
+
+Vuoto significa che la modifica è già in history e la copia locale non contiene
+nulla di unico: `git checkout -- <file>` e poi pull. Se **non** è vuoto, sul
+server c'è lavoro che non esiste altrove, e va portato via prima di toccarlo.
 
 ## Backup
 

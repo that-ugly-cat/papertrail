@@ -16,13 +16,23 @@ mette mediamente un journal a rispondere.
 
 **La submission è un ciclo, non una casella.** Un paper può essere rifiutato,
 rivisto e ripresentato altrove. Ogni tentativo è una riga con journal, data ed
-esito, e la storia completa resta leggibile.
+esito, e la storia completa resta leggibile. E sono due attese diverse, non una:
+sulla scrivania di un editor un paper può tornare indietro domani con un desk
+reject, dai referee ci mette mesi — quindi due colonne, `Submitted` e
+`Under review`, ma un tentativo solo, con lo stesso venue e lo stesso orologio.
 
 **Le idee non muoiono in fondo alla lista.** Ciò che non si muove da abbastanza
 tempo viene marcato dormiente e torna a galla, invece di sedimentare in silenzio.
 
 **Ogni progetto è collegato al resto.** Wiki, file, bandi, review sistematiche:
 un progetto punta alle cose che lo riguardano invece di essere un'isola.
+
+**Il bollino giallo.** Un pallino su una card, un click, e quel progetto è fra
+quelli su cui devi mettere il naso. È privato — lo vedi solo tu, anche sui paper
+degli altri — e non cambia niente di ciò che il gruppo vede: non fa apparire il
+progetto vivo, non ti mette a seguirlo, non chiede il permesso di scrittura.
+Filtro sulla board, scheda **Flagged** in «My work», e leggibile via MCP, così
+«cosa devo guardare» ha una risposta anche fuori dal browser.
 
 ## Accesso
 
@@ -45,8 +55,9 @@ wiki.
 
 C'è: login e ruoli per workspace, workspace personale per utente, progetti
 condivisibili fra gruppi, board kanban con drag-and-drop, ciclo di submission
-completo (tentativi, giri di revisione, transfer), vista «My work» trasversale,
-Hall of done per anno, cestino, layer MCP con 11 tool, audit read-only.
+completo (tentativi, giri di revisione, transfer), `Submitted` e `Under review`
+come colonne separate, bollino giallo per utente, vista «My work» trasversale,
+Hall of done per anno, cestino, layer MCP con 12 tool, audit read-only.
 
 I collegamenti all'ecosistema esistono come `Link`: `wiki` verso le pagine del
 wiki di Spit, `lssr` verso i workspace delle review, più `doi`, `preprint`,
@@ -54,7 +65,8 @@ wiki di Spit, `lssr` verso i workspace delle review, più `doi`, `preprint`,
 
 Non c'è ancora: le **deadline** (il modello c'è, l'interfaccia no — finché è così
 le scadenze vivono nelle note), statistiche sulle latenze per journal in
-interfaccia, ricerca semantica sulle idee, matching automatico con Grant Radar.
+interfaccia, ricerca semantica sulle idee (quella che c'è è lessicale, e lo
+dichiara), matching automatico con Grant Radar.
 
 Dettagli architetturali e roadmap in `SPEC.md` (locale, non versionato).
 Installazione e deploy in `DEPLOY.md`.
