@@ -81,3 +81,22 @@ Installazione e deploy in `DEPLOY.md`.
 ## Stack
 
 FastAPI, Jinja2, SQLAlchemy, SQLite. Docker, porta 8017.
+
+## Facoltativo: dietro un gate SSO
+
+`AUTH_MODE=gateway` sostituisce il login dell'app con un gate `forward_auth` a
+monte: si arriva già riconosciuti, `/login` si spegne da sé, e le persone si
+ritrovano per subject immutabile invece che per indirizzo email.
+
+**Due cose non si muovono, ed è il punto.** `/mcp*` resta fuori con la sua
+chiave per-utente, `/mcp/k/{chiave}` compreso. E soprattutto **l'autorizzazione
+resta qui**: il gate dice *chi sei*, `workspace_dep` continua a decidere *cosa
+puoi toccare*, e un profilo che arrivasse senza righe in `Membership` non
+vedrebbe nessun workspace. Il modo peggiore di sbagliare la configurazione è
+quindi una schermata vuota, non una fuga.
+
+Nessun secondo fattore: le colonne `totp_*` esistevano da uno schema vecchio,
+non sono mai state collegate a una rotta, e sono state tolte. Se un giorno
+servisse, lo mette il gate come policy — senza una riga qui.
+
+`local` resta il default e pienamente supportato. Dettagli in `DEPLOY.md`.
