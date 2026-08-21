@@ -16,10 +16,17 @@ mette mediamente un journal a rispondere.
 
 **La submission è un ciclo, non una casella.** Un paper può essere rifiutato,
 rivisto e ripresentato altrove. Ogni tentativo è una riga con journal, data ed
-esito, e la storia completa resta leggibile. E sono due attese diverse, non una:
+esito, e la storia completa resta leggibile. E sono attese diverse, non una:
 sulla scrivania di un editor un paper può tornare indietro domani con un desk
 reject, dai referee ci mette mesi — quindi due colonne, `Submitted` e
 `Under review`, ma un tentativo solo, con lo stesso venue e lo stesso orologio.
+
+**Accettato non vuol dire pubblicato.** Fra la lettera e il DOI ci sono bozze,
+embargo e un fascicolo che si riempie quando si riempie: mesi in cui il paper è
+vinto e non esiste, e in cui a essersi fermata è la coda di qualcun altro.
+`Accepted` è una colonna sua, ed è l'unica fase avanzata che **può ancora
+diventare dormiente** — un paper accettato che non esce mai è esattamente ciò che
+deve tornare a galla.
 
 **Le idee non muoiono in fondo alla lista.** Ciò che non si muove da abbastanza
 tempo viene marcato dormiente e torna a galla, invece di sedimentare in silenzio.
@@ -55,8 +62,8 @@ wiki.
 
 C'è: login e ruoli per workspace, workspace personale per utente, progetti
 condivisibili fra gruppi, board kanban con drag-and-drop, ciclo di submission
-completo (tentativi, giri di revisione, transfer), `Submitted` e `Under review`
-come colonne separate, bollino giallo per utente, vista «My work» trasversale,
+completo (tentativi, giri di revisione, transfer), `Submitted`, `Under review` e
+`Accepted` come colonne separate, bollino giallo per utente, vista «My work» trasversale,
 Hall of done per anno, cestino, layer MCP con 12 tool, audit read-only.
 
 I collegamenti all'ecosistema esistono come `Link`: `wiki` verso le pagine del
