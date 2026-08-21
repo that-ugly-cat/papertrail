@@ -25,7 +25,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from auth import (
-    WorkspaceAccess, check_api_key, create_token, get_current_user,
+    WorkspaceAccess, check_api_key, create_token,
+    gateway_mode as auth_gateway_mode, get_current_user,
     hash_password, project_access, require_admin, set_caller, touch_login,
     verify_password, workspace_dep,
 )
@@ -192,6 +193,11 @@ def _project_or_404(acc: WorkspaceAccess, pid: int) -> Project:
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db: Session = Depends(get_db)):
+    # In gateway mode the app switches its own login off rather than relying on
+    # the proxy to hide it: two sets of credentials for one tracker is exactly
+    # what the SSO is there to remove.
+    if auth_gateway_mode():
+        return RedirectResponse("/", status_code=302)
     return templates.TemplateResponse(
         request, "login.html", {"user": None})
 
@@ -199,6 +205,8 @@ def login_page(request: Request, db: Session = Depends(get_db)):
 @app.post("/login")
 def login(request: Request, email: str = Form(...), password: str = Form(...),
           db: Session = Depends(get_db)):
+    if auth_gateway_mode():
+        return RedirectResponse("/", status_code=302)
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse(
@@ -214,9 +222,15 @@ def login(request: Request, email: str = Form(...), password: str = Form(...),
     return resp
 
 
+BORANT_LOGOUT_URL = os.environ.get("BORANT_LOGOUT_URL", "https://id.borant.eu/logout")
+
+
 @app.get("/logout")
 def logout():
-    resp = RedirectResponse("/login", status_code=302)
+    # In gateway mode dropping the local cookie is not signing out: the gate
+    # still holds the session, and the next click walks straight back in.
+    target = BORANT_LOGOUT_URL if auth_gateway_mode() else "/login"
+    resp = RedirectResponse(target, status_code=302)
     resp.delete_cookie("session")
     return resp
 

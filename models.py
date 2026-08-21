@@ -187,6 +187,11 @@ class User(Base):
     email                 = Column(String, unique=True, nullable=False)
     name                  = Column(String, nullable=False)
     hashed_password       = Column(String, nullable=False)
+    # Immutable subject an upstream SSO gate knows this person by, when there is
+    # one. Null until map_borant.py links them. Never the email: an address
+    # changes with an institution, and this is what re-finds someone's
+    # memberships across that change.
+    borant_sub            = Column(String, unique=True, nullable=True, index=True)
     totp_secret_encrypted = Column(String, nullable=True)
     totp_enabled          = Column(Boolean, default=False)
     # Global admin creates users and workspaces. It does NOT imply access to
@@ -983,6 +988,8 @@ def get_db():
 # Additive migrations: each entry runs on every startup and is ignored if the
 # column already exists. Never drop, never rename (borant house pattern).
 _MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN borant_sub VARCHAR",
+    "CREATE UNIQUE INDEX ix_users_borant_sub ON users (borant_sub)",
     "ALTER TABLE users ADD COLUMN last_login DATETIME",
     "ALTER TABLE users ADD COLUMN totp_secret_encrypted VARCHAR",
     "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN DEFAULT 0",

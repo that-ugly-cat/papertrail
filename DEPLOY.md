@@ -86,3 +86,65 @@ JWT_SECRET=dev COOKIE_SECURE=0 uv run uvicorn main:app --reload --port 8017
 
 `COOKIE_SECURE=0` serve perché in locale non c'è TLS e il browser scarterebbe un
 cookie marcato `secure`, lasciandoti in un loop di login.
+
+## Dietro un gate SSO (`AUTH_MODE=gateway`)
+
+Facoltativo, e spento se non lo si accende. In `gateway` PaperTrail smette di
+chiedere la password e legge gli header d'identità messi da un gate
+`forward_auth` davanti. `/login` reindirizza alla home, e «esci» passa da
+`BORANT_LOGOUT_URL` così la sessione centrale muore col cookie locale.
+
+**Quello che non cambia, ed è la parte importante:** l'autorizzazione resta qui.
+Il gate dice *chi sei*; `workspace_dep` continua a decidere *cosa puoi toccare*,
+e un profilo senza righe in `Membership` non vede nessun workspace. Il modo
+peggiore di sbagliare la mappatura è quindi una schermata vuota, non una fuga.
+
+**E `/mcp` resta fuori dal gate**, con la sua chiave per-utente: un client
+modello non ha browser né cookie, e metterlo dietro una sessione di dominio
+vorrebbe dire spegnerlo. `/mcp/*` copre anche `/mcp/k/{chiave}`.
+
+**`local` resta il default.** Un'app che crede a `X-Borant-Sub` senza niente
+davanti fa entrare chiunque spedisca quell'header.
+
+```
+papertrail.borant.eu {
+    @pubbliche path /healthz /static/* /mcp /mcp/* /login /logout
+    handle @pubbliche {
+        import noforge
+        import nocookie
+        reverse_proxy localhost:8017
+    }
+    handle {
+        import borantid
+        reverse_proxy localhost:8017
+    }
+}
+```
+
+Il secondo fattore su `/admin`, se lo si vuole, **lo mette il gate**: è una
+`policy` con `path_prefix = /admin` e `level = two_factor` nel suo pannello, e
+non richiede né una riga qui né un reload di Caddy. Le colonne `totp_*` di
+questa tabella `users` non sono mai state collegate a una rotta e restano
+inerti.
+
+**Prima di accendere, lega gli utenti esistenti e leggi il report:**
+
+```bash
+docker exec papertrail python map_borant.py --map tu@example.org=01ABC…
+docker exec papertrail python map_borant.py --report
+```
+
+`BORANT_TRUSTED_PROXY` è il secondo lucchetto e l'impostazione che si sbaglia.
+Sotto Docker il container non vede `127.0.0.1` ma il gateway di una rete bridge.
+Si legge dalla realtà:
+
+```bash
+curl -s -o /dev/null http://127.0.0.1:8017/healthz && docker logs papertrail 2>&1 | tail -1
+```
+
+Rollback, due righe e nessuna migrazione di dati:
+
+```bash
+sed -i 's/^AUTH_MODE=gateway/AUTH_MODE=local/' .env
+docker compose up -d
+```
