@@ -146,10 +146,27 @@ async def api_key_gate(request: Request, call_next):
 
 @app.exception_handler(HTTPException)
 async def auth_redirect(request: Request, exc: HTTPException):
-    """Unauthenticated HTML requests get /login instead of raw 401 JSON."""
+    """Unauthenticated HTML requests get /login instead of raw 401 JSON.
+
+    **Tranne in `gateway`**, dove `/login` l'app lo spegne da se' e rimanda a
+    `/app`: mandarci un 401 chiuderebbe un anello — `/app` -> 401 -> `/login`
+    -> `/app` — da cui non si esce. In produzione non si vede perche' il gate
+    intercetta prima, ma un matcher sbagliato darebbe una giravolta invece di
+    un errore, e un anello e' molto piu' difficile da diagnosticare.
+
+    Il messaggio e' quello di Onopedia: parla all'operatore, perche' in
+    `gateway` una richiesta senza identita' significa che il gate non ha
+    girato.
+    """
     accepts_html = "text/html" in request.headers.get("accept", "")
     if exc.status_code == status.HTTP_401_UNAUTHORIZED and accepts_html:
-        return RedirectResponse("/login", status_code=302)
+        if auth_gateway_mode():
+            exc = HTTPException(status_code=503, detail=(
+                "Gateway mode: no valid identity in the X-Borant-* headers. Check "
+                "that the gate really sits in front of this app and that "
+                "BORANT_TRUSTED_PROXY lists the address the proxy connects from."))
+        else:
+            return RedirectResponse("/login", status_code=302)
     if accepts_html and exc.status_code in (403, 404):
         return templates.TemplateResponse(
             request, "error.html",
@@ -197,7 +214,7 @@ def login_page(request: Request, db: Session = Depends(get_db)):
     # the proxy to hide it: two sets of credentials for one tracker is exactly
     # what the SSO is there to remove.
     if auth_gateway_mode():
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse("/app", status_code=302)
     return templates.TemplateResponse(
         request, "login.html", {"user": None})
 
@@ -206,7 +223,7 @@ def login_page(request: Request, db: Session = Depends(get_db)):
 def login(request: Request, email: str = Form(...), password: str = Form(...),
           db: Session = Depends(get_db)):
     if auth_gateway_mode():
-        return RedirectResponse("/", status_code=302)
+        return RedirectResponse("/app", status_code=302)
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if not user or not user.is_active or not verify_password(password, user.hashed_password):
         return templates.TemplateResponse(
@@ -215,7 +232,7 @@ def login(request: Request, email: str = Form(...), password: str = Form(...),
             status_code=401,
         )
     touch_login(db, user)
-    resp = RedirectResponse("/", status_code=302)
+    resp = RedirectResponse("/app", status_code=302)
     resp.set_cookie("session", create_token(user.id), httponly=True,
                     samesite="lax", max_age=7 * 24 * 3600,
                     secure=os.environ.get("COOKIE_SECURE", "1") == "1")
@@ -238,6 +255,18 @@ def logout():
 # ── workspaces ────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    """La vetrina pubblica. Sta fuori dal gate e **non guarda mai chi sei**.
+
+    Nessuna dipendenza da un utente, nessuna lettura dal database, nessun
+    numero interno: sul ramo pubblico l'identita' viene tolta per costruzione,
+    quindi un ramo su `user` sarebbe sempre falso in `gateway` e a volte vero
+    in `local` — la stessa pagina con due comportamenti.
+    """
+    return templates.TemplateResponse(request, "landing.html", {"user": None})
+
+
+@app.get("/app", response_class=HTMLResponse)
 def home(request: Request, user: User = Depends(get_current_user),
          db: Session = Depends(get_db)):
     rows = user_workspaces(db, user)
