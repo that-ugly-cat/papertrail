@@ -64,7 +64,7 @@ C'è: login e ruoli per workspace, workspace personale per utente, progetti
 condivisibili fra gruppi, board kanban con drag-and-drop, ciclo di submission
 completo (tentativi, giri di revisione, transfer), `Submitted`, `Under review` e
 `Accepted` come colonne separate, bollino giallo per utente, vista «My work» trasversale,
-Hall of done per anno, cestino, layer MCP con 12 tool, audit read-only.
+Hall of done per anno, cestino, layer MCP con 16 tool, audit read-only.
 
 I collegamenti all'ecosistema esistono come `Link`: `wiki` verso le pagine del
 wiki di Spit, `lssr` verso i workspace delle review, più `doi`, `preprint`,

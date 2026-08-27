@@ -23,9 +23,10 @@ from mcp.server.mcpserver import MCPServer
 
 import auth
 from models import (
-    KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS, STATUSES, SUBMISSION_OUTCOMES, Authorship, Link,
+    AUTHOR_ROLES, KEEPS_ATTEMPT_OPEN, LINK_KINDS, OUTCOME_LABELS, STATUSES,
+    SUBMISSION_OUTCOMES, Authorship, Link,
     Note, Project, SessionLocal, Submission, apply_outcome, effective_status,
-    flag_of,
+    flag_of, looks_like_preprint_doi,
     OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
     last_event_at, log_event, snap, user_workspaces, utcnow, visible_links,
 )
@@ -514,6 +515,12 @@ def add_author(workspace: str, project_id: int, name: str,
         person = get_or_create_person(db, name)
         if not person:
             return _fail("A name is required")
+        if role not in AUTHOR_ROLES:
+            # The web route folds an unknown role onto co-author; here it is an
+            # error instead. A form has a select and cannot send nonsense, a
+            # model can, and silently storing "first author" as "co-author"
+            # writes a fact nobody checked. Same invariant, louder.
+            return _fail(f"role must be one of {AUTHOR_ROLES}")
         if any(a.person_id == person.id for a in p.authorships):
             return {"ok": True, "unchanged": True, "person": person.name}
         db.add(Authorship(project_id=p.id, person_id=person.id, role=role,
@@ -562,6 +569,251 @@ def create_project(workspace: str, title: str, status: str = "idea",
         log_event(db, p, user, "created", to_status=status)
         db.commit()
         return {"ok": True, "id": p.id, "title": p.title,
+                "url": f"/w/{ws.slug}/p/{p.id}"}
+    except (LookupError, PermissionError) as e:
+        return _fail(str(e))
+    finally:
+        db.close()
+
+
+# ── correcting what is already there ──────────────────────────────────────────
+#
+# Everything above this line adds: a note, a status, an attempt, a link, an
+# author, a project. Nothing above it could fix a typo or take something back,
+# which meant this surface could write mistakes it could not clean up, and every
+# correction — including the ones it had just caused — had to be finished by
+# hand in the web app. That asymmetry is what the four tools below close.
+
+# Fields update_project will blank on request. `title` is not among them: a
+# project without one is unfindable in every list that sorts by it. `status` is
+# not a field here at all — it moves through set_status, which logs the
+# transition, and two doors onto one invariant is how they diverge (§8).
+CLEARABLE_FIELDS = ("final_title", "journal", "doi", "pub_year", "summary")
+
+
+@mcp.tool()
+def update_project(workspace: str, project_id: int,
+                   title: str | None = None, final_title: str | None = None,
+                   journal: str | None = None, output_type: str | None = None,
+                   doi: str | None = None, pub_year: int | None = None,
+                   summary: str | None = None, clear: str = "") -> dict:
+    """
+    Correct a project's fields: title, final_title, journal, output_type, doi,
+    pub_year, summary. For the status use set_status, which logs the move.
+
+    Only what you pass is touched. An omitted field is left alone, and so is one
+    passed empty — the web form sends every field on every save, so a blank
+    there means "erase", but a model fills in what it knows and leaves the rest,
+    and a tool where silence erases would quietly empty fields nobody mentioned.
+    To blank something you must name it: clear="journal,doi".
+
+    `title` is the working name, `final_title` the one it was published under;
+    lists show the second where it exists. `journal` is folded onto a venue the
+    workspace already uses when it differs only in case or spacing.
+
+    `doi` is not a bibliographic detail: it is what makes a project read as
+    Published everywhere (SPEC §5). A preprint belongs in a link instead —
+    add_link(kind="preprint") — and a Zenodo or arXiv DOI here would announce a
+    publication that has not happened, so this tool refuses one.
+    """
+    db = SessionLocal()
+    try:
+        ws, _role = auth.mcp_workspace(db, workspace, "write")
+        user = auth.current_caller()
+        p = (db.query(Project)
+               .filter(Project.id == project_id,
+                       Project.workspace_id == ws.id).first())
+        if not p:
+            return _fail(f"No project {project_id} in '{workspace}'")
+
+        wipe = {f.strip() for f in clear.split(",") if f.strip()}
+        unknown = wipe - set(CLEARABLE_FIELDS)
+        if unknown:
+            return _fail(f"cannot clear {sorted(unknown)}; clearable fields are "
+                         f"{list(CLEARABLE_FIELDS)}")
+        if title is not None and not title.strip():
+            return _fail("A project needs a title; pass a new one to rename it")
+        if output_type is not None and output_type not in OUTPUT_TYPES:
+            return _fail(f"output_type must be one of {OUTPUT_TYPES}")
+        if doi and looks_like_preprint_doi(doi):
+            return _fail(
+                f"'{doi.strip()}' looks like a preprint DOI, and this field is "
+                f"what marks a project Published. Record it as a link instead, "
+                f"with add_link, kind 'preprint'.")
+        if pub_year is not None and not (1900 <= pub_year <= 2100):
+            return _fail("pub_year must be a four-digit year between 1900 and 2100")
+
+        proposed = {
+            "title": title.strip() if title and title.strip() else None,
+            "final_title": final_title.strip() if final_title and final_title.strip() else None,
+            "journal": snap(journal, known_venues(db, ws)) if journal else None,
+            "output_type": output_type,
+            "doi": doi.strip() if doi and doi.strip() else None,
+            "pub_year": pub_year,
+            "summary": summary.strip() if summary and summary.strip() else None,
+        }
+        was_published = bool(p.doi)
+        changed = []
+        for field, value in proposed.items():
+            if field in wipe:
+                value = None
+            elif value is None:
+                continue
+            if getattr(p, field) != value:
+                setattr(p, field, value)
+                changed.append(field)
+
+        if changed:
+            log_event(db, p, user, "field_changed",
+                      payload=json.dumps({"fields": changed}))
+            db.commit()
+        eff = effective_status(p)
+        out = {"ok": True, "changed": changed, "status": p.status,
+               "effective_status": eff["label"],
+               "status_mismatch": eff["diverges"],
+               "url": f"/w/{ws.slug}/p/{p.id}"}
+        if "doi" in changed and bool(p.doi) != was_published:
+            # Said out loud, because the caller edited one field and moved the
+            # project across the board: the DOI is the switch, not the label.
+            out["note"] = ("Reads as Published now." if p.doi else
+                           "No DOI any more, so it stops reading as Published.")
+        return out
+    except (LookupError, PermissionError) as e:
+        return _fail(str(e))
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def remove_author(workspace: str, project_id: int, name: str) -> dict:
+    """
+    Detach a person from a project. The person record stays: they are on other
+    papers, and their name is the vocabulary this workspace autocompletes from.
+
+    By name rather than by id, because a name is what get_project returns and
+    what the conversation is already using — and add_author refuses duplicates,
+    so on any one project a name identifies exactly one row.
+    """
+    db = SessionLocal()
+    try:
+        ws, _role = auth.mcp_workspace(db, workspace, "write")
+        user = auth.current_caller()
+        p = (db.query(Project)
+               .filter(Project.id == project_id,
+                       Project.workspace_id == ws.id).first())
+        if not p:
+            return _fail(f"No project {project_id} in '{workspace}'")
+        needle = " ".join(name.split()).lower()
+        hit = [a for a in p.authorships if a.person.name.lower() == needle]
+        if not hit:
+            return _fail(f"'{name}' is not an author of {project_id}. On it: "
+                         f"{[a.person.name for a in p.authorships]}")
+        gone = hit[0].person.name
+        log_event(db, p, user, "authorship_changed",
+                  payload=json.dumps({"removed": gone}))
+        db.delete(hit[0])
+        db.commit()
+        return {"ok": True, "removed": gone,
+                "authors": [a.person.name for a in p.authorships]}
+    except (LookupError, PermissionError) as e:
+        return _fail(str(e))
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def remove_link(workspace: str, project_id: int, target: str) -> dict:
+    """
+    Detach a link, named by its target — the same string add_link took.
+
+    Someone else's private link is invisible here, so it is unremovable here
+    too, and the answer is "no such link" rather than a refusal: saying no
+    loudly would confirm that something is there (§3).
+    """
+    db = SessionLocal()
+    try:
+        ws, _role = auth.mcp_workspace(db, workspace, "write")
+        user = auth.current_caller()
+        p = (db.query(Project)
+               .filter(Project.id == project_id,
+                       Project.workspace_id == ws.id).first())
+        if not p:
+            return _fail(f"No project {project_id} in '{workspace}'")
+        needle = target.strip()
+        visible = visible_links(p, user)
+        hit = [l for l in visible if l.target == needle]
+        if not hit:
+            return _fail(f"No link to '{needle}' on {project_id}. Present: "
+                         f"{[l.target for l in visible]}")
+        if len(hit) > 1:
+            return _fail(f"{len(hit)} links point at '{needle}'; remove the "
+                         f"right one in the web app")
+        db.delete(hit[0])
+        db.commit()
+        return {"ok": True, "removed": needle,
+                "links": len(visible_links(p, user))}
+    except (LookupError, PermissionError) as e:
+        return _fail(str(e))
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def edit_submission(workspace: str, submission_id: int, venue: str = "",
+                    submitted_at: str = "", outcome_at: str = "") -> dict:
+    """
+    Fix an attempt's venue or its dates. Dates as YYYY-MM-DD; empty leaves the
+    field alone.
+
+    Separate from record_outcome on purpose: one says what the editor decided,
+    the other fixes what we wrote down, and conflating them logs a typo as an
+    editorial event. Reach for it above all on `submitted_at` — every latency
+    this system reports is measured from it, so a date left at today because
+    nobody looked it up makes the whole clock lie.
+    """
+    db = SessionLocal()
+    try:
+        ws, _role = auth.mcp_workspace(db, workspace, "write")
+        user = auth.current_caller()
+        s = (db.query(Submission)
+               .join(Project, Project.id == Submission.project_id)
+               .filter(Submission.id == submission_id,
+                       Project.workspace_id == ws.id).first())
+        if not s:
+            return _fail(f"No submission {submission_id} in '{workspace}'")
+        p = s.project
+        changed = {}
+        if venue.strip():
+            new_venue = snap(venue, known_venues(db, ws))
+            if new_venue and new_venue != s.venue:
+                changed["venue"] = [s.venue, new_venue]
+                s.venue = new_venue
+        for field, raw in (("submitted_at", submitted_at),
+                           ("outcome_at", outcome_at)):
+            if not raw.strip():
+                continue
+            try:
+                parsed = datetime.strptime(raw.strip(), "%Y-%m-%d")
+            except ValueError:
+                # Not the old value back, which is the bug SPEC §8 names as a
+                # category: a malformed date quietly becoming a plausible one
+                # is a record that lies with a straight face.
+                return _fail(f"{field} must be YYYY-MM-DD, got '{raw.strip()}'")
+            current = getattr(s, field)
+            if parsed != current:
+                changed[field] = [current and current.strftime("%Y-%m-%d"),
+                                  parsed.strftime("%Y-%m-%d")]
+                setattr(s, field, parsed)
+        if s.submitted_at and s.outcome_at and s.outcome_at < s.submitted_at:
+            db.rollback()
+            return _fail("outcome_at is before submitted_at; a decision cannot "
+                         "predate the submission it answers")
+        if changed:
+            log_event(db, p, user, "field_changed",
+                      payload=json.dumps({"submission": s.id, "fields": changed}))
+            db.commit()
+        return {"ok": True, "changed": changed, "venue": s.venue,
+                "days_open": s.days_open,
                 "url": f"/w/{ws.slug}/p/{p.id}"}
     except (LookupError, PermissionError) as e:
         return _fail(str(e))

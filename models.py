@@ -968,6 +968,29 @@ def snap(value: str | None, vocabulary: list[str]) -> str | None:
     return v
 
 
+PREPRINT_DOI_MARKERS = ("zenodo", "arxiv", "biorxiv", "medrxiv", "ssrn",
+                        "osf.io", "researchsquare", "research-square",
+                        "preprints", "10.48550/", "10.5281/", "10.21203/",
+                        "10.31219/", "10.2139/", "10.20944/")
+
+
+def looks_like_preprint_doi(value: str | None) -> bool:
+    """
+    Whether a DOI is one a preprint server minted.
+
+    This matters because `Project.doi` is not a bibliographic detail: it is what
+    effective_status() reads to call a project Published (§5). A preprint DOI in
+    that field therefore does not add a citation, it announces a publication
+    that has not happened. Preprints belong in Link(kind='preprint'), which is
+    the decision already taken during the migration.
+
+    Heuristic, and deliberately so — a registry of every preprint prefix would
+    go stale. It guides the writing functions; it does not gate the database.
+    """
+    v = (value or "").strip().lower()
+    return bool(v) and any(m in v for m in PREPRINT_DOI_MARKERS)
+
+
 def slugify(value: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
     return s or secrets.token_hex(4)
