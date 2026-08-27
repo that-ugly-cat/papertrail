@@ -460,9 +460,13 @@ def record_outcome(workspace: str, submission_id: int, outcome: str,
 @mcp.tool()
 def add_link(workspace: str, project_id: int, kind: str, target: str,
              label: str = "", private: bool = False) -> dict:
-    """Attach a link. kind: wiki, file, grant, lssr, doi, url, repo. This is how
-    a project stops being an island and points at the wiki page, the draft on
-    disk, the grant, the systematic review.
+    """Attach a link. kind: wiki, file, grant, lssr, doi, preprint, url, repo.
+    This is how a project stops being an island and points at the wiki page, the
+    draft on disk, the grant, the systematic review.
+
+    `preprint` is where a Zenodo, arXiv or bioRxiv deposit goes, with the
+    resolvable URL as the target. Not in the project's `doi` field: that one is
+    what makes the card read as Published, and a preprint is not one.
 
     Set `private` when the target is somewhere only you can reach — a path in a
     personal wiki or vault, a local file. Private links are visible only to you,
