@@ -679,8 +679,14 @@ async def move_project(slug: str, request: Request,
                                               "attempt": reopened.attempt,
                                               "resubmission": True}))
             elif venue:
+                # max(attempt) + 1, not len(): counting rows repeats a number
+                # the first time an attempt is removed or an import leaves a
+                # gap. The form and the MCP tool already did it this way; this
+                # was the third copy and the one still counting.
+                nxt = (max((x.attempt or 0) for x in p.submissions) + 1
+                       if p.submissions else 1)
                 s = Submission(project_id=p.id, venue=venue,
-                               attempt=len(p.submissions) + 1,
+                               attempt=nxt,
                                submitted_at=when, outcome="pending")
                 db.add(s)
                 log_event(db, p, acc.user, "submission_opened",
