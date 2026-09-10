@@ -12,7 +12,8 @@ app uses. The MCP surface therefore has exactly the reach of its owner, no more.
 A workspace the caller is not a member of reports "not found" rather than
 "forbidden", so the model cannot enumerate what it cannot see. And every project
 lookup goes through projects_in(), the same helper the web views use, so what is
-in the trash is out of reach here too.
+in the trash is out of reach here too and a project shared into a workspace is
+reachable from it, exactly as the board shows it.
 
 Errors are returned as {"error": ...} rather than raised: a tool that throws
 gives the model a stack trace to hallucinate around, while a message it can read
@@ -62,11 +63,22 @@ def _projects(db, ws):
     left a project in the trash invisible in the interface and both readable and
     editable from a chat client.
 
-    `shared=False` keeps today's reach — the home workspace only — because
-    widening it to the projects shared in is a decision about what the surface
-    is for, not a bug fix.
+    `shared=True`, like the board: a project shared into this workspace through
+    ProjectWorkspace is reachable here too. It used to be home-workspace only,
+    which made this surface *narrower* than the person holding the key — the
+    opposite of what the instructions promise — and failed in the worst way
+    available: `get_project` answered "No project 5 in 'ite'", byte-identical to
+    the answer for a project that does not exist, so a model concluded the paper
+    was not tracked.
+
+    Authorisation does not widen with it. Each tool still asks
+    `auth.mcp_workspace(db, workspace, "write")` for the role on the workspace
+    it was given, so reaching a shared-in project through a workspace where you
+    are a reader is still a read. The web's rule is the same one seen from the
+    other side: a shared paper is one object, and whoever can edit it somewhere
+    can edit it.
     """
-    return projects_in(db, ws, shared=False)
+    return projects_in(db, ws, shared=True)
 
 
 def _project(db, ws, project_id: int):

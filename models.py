@@ -586,9 +586,10 @@ def projects_in(db, ws: "Workspace", deleted: bool = False,
     from a chat client.
 
     `shared` includes the projects shared in through ProjectWorkspace as well as
-    the ones that live here. The web board wants them; the MCP surface today
-    asks for its home workspace only, and widening that is a separate decision
-    from this one.
+    the ones that live here, and both surfaces want them: a shared paper is one
+    object, and which board you opened it from is not a property of the paper.
+    The parameter stays because `shared=False` is the honest way to ask the
+    narrower question — which projects live *here* — and something will want it.
     """
     q = db.query(Project)
     if shared:
