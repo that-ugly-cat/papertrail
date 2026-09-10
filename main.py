@@ -39,7 +39,7 @@ from models import (
     SUBMISSION_OUTCOMES, Authorship, Link, Membership, Note, Person, Project,
     SessionLocal, Submission, User, Workspace, canonical, effective_status,
     Flag, flag_of, flagged_ids,
-    get_db, has_role, involvement_of, role_for, workspaces_of,
+    get_db, has_role, involvement_of, projects_in, role_for, workspaces_of,
     ensure_personal_workspace, get_or_create_person, init_db, is_dormant,
     known_people, known_venues, personal_workspace,
     apply_outcome, last_event_at, log_event, open_submission, slugify, snap,
@@ -184,23 +184,8 @@ def _append_milestone(existing: str | None, outcome: str) -> str:
     return "\n".join(filter(None, [existing, line]))
 
 
-def _projects_in(db: Session, ws: Workspace, deleted: bool = False):
-    """Projects of a workspace: the ones that live here plus the ones shared in.
-
-    Deleted ones are excluded everywhere by default — one filter, applied at the
-    single place every view goes through, so nothing can forget it."""
-    q = (db.query(Project)
-           .outerjoin(ProjectWorkspace,
-                      ProjectWorkspace.project_id == Project.id)
-           .filter((Project.workspace_id == ws.id)
-                   | (ProjectWorkspace.workspace_id == ws.id)))
-    q = q.filter(Project.deleted_at.isnot(None) if deleted
-                 else Project.deleted_at.is_(None))
-    return q.distinct()
-
-
 def _project_or_404(acc: WorkspaceAccess, pid: int) -> Project:
-    p = _projects_in(acc.db, acc.workspace).filter(Project.id == pid).first()
+    p = projects_in(acc.db, acc.workspace).filter(Project.id == pid).first()
     if p is None:
         raise HTTPException(status_code=404, detail="Not found")
     return p
@@ -306,13 +291,20 @@ def personal_board(request: Request, q: str | None = None, dormant: str = "",
                    user: User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     """
-    Everything the caller is an author on, across every workspace they belong to.
+    Everything the caller is involved in, across every workspace they belong to.
+
+    `scope` chooses the question, and the default is `involved`: involvement,
+    not authorship. `involved`, `lead` and `watching` read Involvement, which is
+    a work list; `authored` reads Authorship, which is a bibliography;
+    `flagged` reads the caller's own dots. So this view answers "what am I on",
+    not "where does my name appear" — see _my_projects() for why those are
+    different questions.
 
     Deliberately NOT a Workspace row, and this is not in tension with personal
     workspaces — the two answer different questions. A personal workspace is a
     *place*: it holds work that is nobody's group, governed by the same ACL as
     any other workspace. This view is a *cut across places*: it gathers cards by
-    authorship from every workspace the caller belongs to, including their
+    involvement from every workspace the caller belongs to, including their
     personal one. Making it a workspace instead would put other groups' projects
     into a second access domain and quietly undo §3, which is the thing to keep
     avoiding. Each card stays governed by its own workspace — the move endpoint
@@ -494,7 +486,13 @@ def create_from_personal(slug: str = Form(""), title: str = Form(...),
 @app.get("/me/done", response_class=HTMLResponse)
 def personal_done(request: Request, user: User = Depends(get_current_user),
                   db: Session = Depends(get_db)):
-    """Your published work, by year, across every workspace you belong to."""
+    """The published work you are involved in, by year, across every workspace
+    you belong to.
+
+    Involvement, like the board it sits beside, because it runs on the same
+    default scope: this is what you are on, which after the Crossref import is
+    not the same list as what your name is on. The bibliography is the
+    `authored` scope of /me, and this view does not offer it."""
     projects, allowed = _my_projects(db, user)
     published = [p for p in projects if p.status == "published"]
     by_year: dict[int | None, list[Project]] = {}
@@ -536,7 +534,7 @@ def board(request: Request, slug: str, person: str = "",
     # Whose flags these are is never in question: the caller's, always.
     my_flags = flagged_ids(db, acc.user)
 
-    projects = (_projects_in(db, ws)
+    projects = (projects_in(db, ws)
                 .order_by(Project.position, Project.id).all())
 
     if person:
@@ -575,11 +573,11 @@ def board(request: Request, slug: str, person: str = "",
          "columns": columns, "people": people, "sel_person": person,
          "q": q or "", "dormant": dormant, "mismatch": mismatch,
          "flagged": flagged, "my_flags": my_flags,
-         "n_flagged": len([p for p in _projects_in(db, ws).all()
+         "n_flagged": len([p for p in projects_in(db, ws).all()
                            if p.id in my_flags]),
          "just_deleted": deleted, "just_deleted_title": title,
-         "n_trash": _projects_in(db, ws, deleted=True).count(),
-         "n_mismatch": sum(1 for p in (_projects_in(db, ws).all())
+         "n_trash": projects_in(db, ws, deleted=True).count(),
+         "n_mismatch": sum(1 for p in (projects_in(db, ws).all())
                            if effective_status(p)["diverges"]),
          "dormant_days": ws.dormant_after_days, "venues": venues,
          "is_dormant": lambda p: is_dormant(p, ws.dormant_after_days)},
@@ -624,6 +622,10 @@ async def move_project(slug: str, request: Request,
     reviewers. Treating that as a new attempt would leave the first one pending
     for ever, which is the same bug the resubmission branch below exists to
     avoid.
+
+    And going in while an attempt is already open at a *different* venue is
+    refused outright, with the reason in the 400 so the board can say it: two
+    live attempts are the same failure by another route.
     """
     db = acc.db
     body = await request.json()
@@ -633,13 +635,32 @@ async def move_project(slug: str, request: Request,
         raise HTTPException(status_code=400, detail="Unknown status")
 
     old_status = p.status
+    crossing_in = new_status in AT_VENUE and old_status not in AT_VENUE
+    venue = (snap(body.get("venue"), known_venues(db, acc.workspace)) or ""
+             if crossing_in else "")
+
+    # One open attempt at a time, on this path as well. open_sub() and the MCP
+    # open_submission() both refuse a second `pending` row because it would
+    # shadow the first for ever — open_submission() returns the most recent —
+    # and this endpoint used to walk straight past that: a card dragged into
+    # `submitted` naming a *different* venue while an attempt was open fell
+    # through to the resubmission check and opened a second one (SPEC.md §4).
+    # Checked before anything is written, so a refusal leaves the row untouched
+    # rather than relying on the session being rolled back.
+    if crossing_in:
+        live = open_submission(p)
+        if live is not None and venue and venue.lower() != live.venue.lower():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Already out at {live.venue}. Record that outcome "
+                       f"first, or name that venue to reopen the same attempt.")
+
     if new_status != old_status:
         p.status = new_status
         log_event(db, p, acc.user, "status_change",
                   from_status=old_status, to_status=new_status)
 
-        if new_status in AT_VENUE and old_status not in AT_VENUE:
-            venue = snap(body.get("venue"), known_venues(db, acc.workspace)) or ""
+        if crossing_in:
             when = utcnow()
             if body.get("submitted_at"):
                 try:
@@ -762,7 +783,7 @@ def hall_of_done(request: Request, slug: str,
     """Published work as cards, newest year first. Papers with no year land in
     a bucket of their own rather than being dropped."""
     db, ws = acc.db, acc.workspace
-    published = (_projects_in(db, ws)
+    published = (projects_in(db, ws)
                  .filter(Project.status == "published").all())
     by_year: dict[int | None, list[Project]] = {}
     for p in published:
@@ -887,7 +908,7 @@ def trash(request: Request, slug: str,
     the database. This is where it stays reachable.
     """
     db = acc.db
-    rows = (_projects_in(db, acc.workspace, deleted=True)
+    rows = (projects_in(db, acc.workspace, deleted=True)
             .order_by(Project.deleted_at.desc()).all())
     who = {}
     for p in rows:
@@ -915,7 +936,7 @@ def purge_project(slug: str, pid: int,
     links, authorships.
     """
     db = acc.db
-    p = (_projects_in(db, acc.workspace, deleted=True)
+    p = (projects_in(db, acc.workspace, deleted=True)
          .filter(Project.id == pid).first())
     if p is None:
         raise HTTPException(status_code=404, detail="Not found")
@@ -944,7 +965,7 @@ def delete_project(slug: str, pid: int,
 def restore_project(slug: str, pid: int,
                     acc: WorkspaceAccess = Depends(workspace_dep("write"))):
     db = acc.db
-    p = (_projects_in(db, acc.workspace, deleted=True)
+    p = (projects_in(db, acc.workspace, deleted=True)
          .filter(Project.id == pid).first())
     if p is None:
         raise HTTPException(status_code=404, detail="Not found")

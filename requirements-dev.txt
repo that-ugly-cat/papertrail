@@ -1,0 +1,12 @@
+# What the tests need on top of requirements.txt, which is what the container
+# installs — pytest has no business in the image.
+#
+#   uv pip install -r requirements.txt -r requirements-dev.txt
+#   python -m pytest tests
+#
+# httpx is declared even though `uvicorn[standard]` does not pull it in and the
+# app itself never makes an outbound call: it is what Starlette's TestClient
+# runs on, so "how do I run the tests" is this file rather than a thing to
+# remember.
+httpx
+pytest

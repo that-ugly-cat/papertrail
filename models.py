@@ -574,6 +574,35 @@ def workspaces_of(project) -> list:
     return out
 
 
+def projects_in(db, ws: "Workspace", deleted: bool = False,
+                shared: bool = True):
+    """
+    Query over the projects of a workspace, with the soft-delete filter applied.
+
+    One place, so nothing can forget it: a trashed project is out of reach from
+    every surface, not only from the ones somebody remembered. It used to live
+    in main.py, which meant the web views went through it and the MCP tools
+    wrote their own filter — and theirs left the trash readable and writable
+    from a chat client.
+
+    `shared` includes the projects shared in through ProjectWorkspace as well as
+    the ones that live here. The web board wants them; the MCP surface today
+    asks for its home workspace only, and widening that is a separate decision
+    from this one.
+    """
+    q = db.query(Project)
+    if shared:
+        q = (q.outerjoin(ProjectWorkspace,
+                         ProjectWorkspace.project_id == Project.id)
+              .filter((Project.workspace_id == ws.id)
+                      | (ProjectWorkspace.workspace_id == ws.id)))
+    else:
+        q = q.filter(Project.workspace_id == ws.id)
+    q = q.filter(Project.deleted_at.isnot(None) if deleted
+                 else Project.deleted_at.is_(None))
+    return q.distinct()
+
+
 def role_on_project(db, user, project) -> str | None:
     """
     The caller's role on a project: the best they hold in any workspace the

@@ -10,7 +10,9 @@ Access. Every call runs as the human who owns the API key, and every workspace
 lookup goes through auth.mcp_workspace(), which is the same role_for() the web
 app uses. The MCP surface therefore has exactly the reach of its owner, no more.
 A workspace the caller is not a member of reports "not found" rather than
-"forbidden", so the model cannot enumerate what it cannot see.
+"forbidden", so the model cannot enumerate what it cannot see. And every project
+lookup goes through projects_in(), the same helper the web views use, so what is
+in the trash is out of reach here too.
 
 Errors are returned as {"error": ...} rather than raised: a tool that throws
 gives the model a stack trace to hallucinate around, while a message it can read
@@ -28,7 +30,8 @@ from models import (
     Note, Project, SessionLocal, Submission, apply_outcome, effective_status,
     flag_of, looks_like_preprint_doi,
     OUTPUT_TYPES, get_or_create_person, is_dormant, known_people, known_venues,
-    last_event_at, log_event, snap, user_workspaces, utcnow, visible_links,
+    last_event_at, log_event, projects_in, snap, user_workspaces, utcnow,
+    visible_links,
 )
 # Aliased: the tool below is also called open_submission, and the model-facing
 # name is the one that must stay readable.
@@ -48,6 +51,36 @@ mcp = MCPServer(
 
 def _fail(msg: str) -> dict:
     return {"error": msg}
+
+
+def _projects(db, ws):
+    """Every project this surface may see in a workspace.
+
+    Same helper the web views use, so the soft-delete filter is applied once
+    rather than restated at each of the twelve lookups below. It used to be
+    restated nowhere: every tool here filtered on the workspace alone, which
+    left a project in the trash invisible in the interface and both readable and
+    editable from a chat client.
+
+    `shared=False` keeps today's reach — the home workspace only — because
+    widening it to the projects shared in is a decision about what the surface
+    is for, not a bug fix.
+    """
+    return projects_in(db, ws, shared=False)
+
+
+def _project(db, ws, project_id: int):
+    return _projects(db, ws).filter(Project.id == project_id).first()
+
+
+def _submission(db, ws, submission_id: int):
+    """A submission reachable from this workspace, by the same rule as its
+    project: a trashed project takes its attempts out of reach with it."""
+    return (db.query(Submission)
+              .filter(Submission.id == submission_id,
+                      Submission.project_id.in_(
+                          _projects(db, ws).with_entities(Project.id)))
+              .first())
 
 
 def _project_brief(p: Project, ws) -> dict:
@@ -84,7 +117,7 @@ def list_workspaces() -> dict:
         user = auth.current_caller()
         return {"you": user.name, "workspaces": [
             {"slug": ws.slug, "name": ws.name, "role": role,
-             "projects": len(ws.projects)}
+             "projects": _projects(db, ws).count()}
             for ws, role in user_workspaces(db, user)]}
     except PermissionError as e:
         return _fail(str(e))
@@ -115,7 +148,7 @@ def list_projects(workspace: str, status: str = "", author: str = "",
     db = SessionLocal()
     try:
         ws, _role = auth.mcp_workspace(db, workspace)
-        rows = db.query(Project).filter(Project.workspace_id == ws.id).all()
+        rows = _projects(db, ws).all()
         if status:
             if status not in STATUSES:
                 return _fail(f"Unknown status '{status}'. One of: {STATUSES}")
@@ -145,9 +178,7 @@ def get_project(workspace: str, project_id: int) -> dict:
     db = SessionLocal()
     try:
         ws, _role = auth.mcp_workspace(db, workspace)
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         out = _project_brief(p, ws)
@@ -202,7 +233,7 @@ def search_projects(query: str, workspace: str = "", limit: int = 30) -> dict:
             return _fail("Empty query")
         hits = []
         for ws, _role in scopes:
-            for p in ws.projects:
+            for p in _projects(db, ws).all():
                 where = []
                 if needle in (p.title or "").lower() \
                         or needle in (p.final_title or "").lower():
@@ -257,9 +288,7 @@ def add_note(workspace: str, project_id: int, body: str) -> dict:
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         if not body.strip():
@@ -298,9 +327,7 @@ def set_status(workspace: str, project_id: int, status: str,
         user = auth.current_caller()
         if status not in STATUSES:
             return _fail(f"Unknown status '{status}'. One of: {STATUSES}")
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         old = p.status
@@ -338,9 +365,7 @@ def open_submission(workspace: str, project_id: int, venue: str,
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         if not venue.strip():
@@ -421,10 +446,7 @@ def record_outcome(workspace: str, submission_id: int, outcome: str,
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        s = (db.query(Submission)
-               .join(Project, Project.id == Submission.project_id)
-               .filter(Submission.id == submission_id,
-                       Project.workspace_id == ws.id).first())
+        s = _submission(db, ws, submission_id)
         if not s:
             return _fail(f"No submission {submission_id} in '{workspace}'")
         if outcome not in SUBMISSION_OUTCOMES or outcome == "pending":
@@ -478,9 +500,7 @@ def add_link(workspace: str, project_id: int, kind: str, target: str,
         user = auth.current_caller()
         if kind not in LINK_KINDS:
             return _fail(f"kind must be one of {LINK_KINDS}")
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         if not target.strip():
@@ -511,9 +531,7 @@ def add_author(workspace: str, project_id: int, name: str,
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         person = get_or_create_person(db, name)
@@ -624,9 +642,7 @@ def update_project(workspace: str, project_id: int,
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
 
@@ -702,9 +718,7 @@ def remove_author(workspace: str, project_id: int, name: str) -> dict:
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         needle = " ".join(name.split()).lower()
@@ -738,9 +752,7 @@ def remove_link(workspace: str, project_id: int, target: str) -> dict:
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        p = (db.query(Project)
-               .filter(Project.id == project_id,
-                       Project.workspace_id == ws.id).first())
+        p = _project(db, ws, project_id)
         if not p:
             return _fail(f"No project {project_id} in '{workspace}'")
         needle = target.strip()
@@ -779,10 +791,7 @@ def edit_submission(workspace: str, submission_id: int, venue: str = "",
     try:
         ws, _role = auth.mcp_workspace(db, workspace, "write")
         user = auth.current_caller()
-        s = (db.query(Submission)
-               .join(Project, Project.id == Submission.project_id)
-               .filter(Submission.id == submission_id,
-                       Project.workspace_id == ws.id).first())
+        s = _submission(db, ws, submission_id)
         if not s:
             return _fail(f"No submission {submission_id} in '{workspace}'")
         p = s.project

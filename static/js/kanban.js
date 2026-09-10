@@ -3,7 +3,9 @@
  *
  * Native HTML5 DnD, no library. The card moves in the DOM optimistically and is
  * put back if the server refuses, so a failed move never leaves the board
- * showing something the database does not agree with.
+ * showing something the database does not agree with — and the server's reason
+ * is shown in a toast, because a card that silently springs back reads as a
+ * broken board rather than as a rule.
  *
  * Crossing the venue boundary opens a dialog first: going in asks for the venue,
  * coming out asks what happened. That is the one moment the information actually
@@ -138,6 +140,42 @@
     });
   }
 
+  /* What the server refused, in its own words. Same shape as every other
+     refusal in main.py: HTTPException, and the JSON handler puts the text in
+     `detail`. A body that is not that (a proxy's HTML 502, say) gets no
+     invented explanation. */
+  async function reasonFor(response) {
+    try {
+      const body = await response.json();
+      return typeof body.detail === 'string' ? body.detail : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* The toast the delete flow already uses, built here because this message is
+     not known until the server answers. */
+  function say(message) {
+    if (!message) return;
+    const old = document.getElementById('move-toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.id = 'move-toast';
+    el.setAttribute('role', 'status');
+    const text = document.createElement('span');
+    text.textContent = message;
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'linkbtn';
+    close.textContent = '×';
+    close.setAttribute('aria-label', 'Dismiss');
+    close.addEventListener('click', () => el.remove());
+    el.append(text, close);
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 7000);
+  }
+
   cards().forEach(bindCard);
 
   function bindCard(card) {
@@ -217,7 +255,11 @@
           body: JSON.stringify(
             Object.assign({ project_id: card.dataset.id, status, order }, extra)),
         });
-        if (!r.ok) throw new Error(r.status);
+        if (!r.ok) {
+          const err = new Error(r.status);
+          err.detail = await reasonFor(r);
+          throw err;
+        }
         const data = await r.json();
         card.classList.add('saved');
         setTimeout(() => card.classList.remove('saved'), 700);
@@ -238,6 +280,11 @@
         }
       } catch (err) {
         rollback(true);
+        /* A refused move used to put the card back and say nothing, which
+           reads as a broken board rather than as a rule. The server states
+           its reason in `detail` — one open attempt at a time, for instance —
+           so show that instead of making the reason guessable. */
+        say(err && err.detail);
       }
     });
   });
