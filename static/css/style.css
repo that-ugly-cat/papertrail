@@ -1,5 +1,10 @@
-/* PaperTrail — dark palette aligned with the other borant tools */
+/* PaperTrail — dark palette aligned with the other borant tools — the default
+   theme. The light palette below overrides it when <html data-theme="light">
+   is set; the theme is chosen in the topbar and stored in localStorage (see
+   theme.js). Every colour belongs in one of these two blocks: a colour
+   hard-coded further down stays dark when the page turns light. */
 :root {
+  color-scheme: dark;
   --bg: #0f1117;
   --card: #1a1d27;
   --card-hover: #1e2235;
@@ -15,11 +20,81 @@
   --danger: #fc8181;
   --danger-bg: #2d1515;
   --danger-border: #7b2020;
+  --danger-bg-hover: #3a1a1a;
   --ok: #68d391;
   --ok-bg: #15291c;
   --warn: #f6ad55;
   --warn-bg: #2d2415;
+  --model: #b794f4;
+  /* .btn-primary used to inherit --text over the dark blue, which is fine while
+     --text is light and wrong the moment it is not. The dark value is exactly
+     what that inheritance rendered, so nothing moves in dark. */
+  --on-primary: #e2e8f0;
+  --code-bg: #0f1117;
+  --col-bg: #14161f;
+  --accent-tint: rgba(74, 111, 165, .10);
+  --overlay: rgba(0, 0, 0, .6);
+  --scrim: rgba(15, 17, 23, .92);
+  --shadow-float: rgba(0, 0, 0, .45);
+  /* The status scale. Eleven steps told apart by hue, not by lightness — which
+     is why the light values below are not the dark ones lightened. */
+  --st-idea: #718096;
+  --st-developed: #9f7aea;
+  --st-active: #4299e1;
+  --st-writing: #ed8936;
+  --st-ready: #ecc94b;
+  --st-submitted: #38b2ac;
+  --st-under-review: #319795;
+  --st-in-revision: #d69e2e;
+  --st-accepted: #48bb78;
+  --st-archived: #4a5568;
   --radius: 10px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --card-hover: #eef1f6;
+  --text: #1a202c;
+  --muted: #4a5568;
+  --muted-2: #5f6a7c;  /* 4.75:1 on --col-bg, the darkest surface it lands on */
+  --muted-3: #656b76;  /* table headers and small labels: 4.65:1 on --col-bg */
+  --border: #d8dee9;
+  --primary: #0a3c8a;
+  --primary-hover: #0d4fa8;
+  --accent: #3767ad;
+  --accent-light: #1b5aa3;
+  --danger: #b42318;
+  --danger-bg: #fdf0ef;
+  --danger-border: #eeb0aa;
+  --danger-bg-hover: #fbe3e0;
+  --ok: #15803d;
+  --ok-bg: #edf8f1;
+  --warn: #92500a;
+  --warn-bg: #fdf4e6;
+  --model: #6b3fa0;
+  --on-primary: #ffffff;
+  --code-bg: #eef1f6;
+  /* Page, column, card: #f5f7fa < #eef1f6 < #ffffff, so a card still lifts off
+     the column the way it does in dark. */
+  --col-bg: #eef1f6;
+  --accent-tint: rgba(55, 103, 173, .10);
+  --overlay: rgba(26, 32, 44, 0.45);
+  --scrim: rgba(245, 247, 250, .92);
+  --shadow-float: rgba(26, 32, 44, 0.18);
+  /* A status dot carries meaning, so each clears 3:1 against --col-bg, the
+     darkest thing behind it. Measured worst case of the eleven: 3.42:1. */
+  --st-idea: #5f6a7c;
+  --st-developed: #7c4fd0;
+  --st-active: #1f6fb8;
+  --st-writing: #c2410c;
+  --st-ready: #8a6d0b;
+  --st-submitted: #0f766e;
+  --st-under-review: #115e59;
+  --st-in-revision: #b45309;
+  --st-accepted: #1a7f43;
+  --st-archived: #7a828f;  /* lighter than --st-idea: archived recedes */
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -45,6 +120,28 @@ body {
   padding: 4px 2px; border-bottom: 2px solid transparent;
 }
 .topbar nav a:hover { color: var(--text); border-bottom-color: var(--accent); }
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; height: 30px;
+  padding: 0;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.theme-toggle:hover { color: var(--text); border-color: var(--accent); background: var(--card-hover); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* one glyph per theme: the button shows where the click leads, not where we are */
+.theme-toggle .theme-icon-light { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-light { display: inline; }
+:root[data-theme="light"] .theme-toggle .theme-icon-dark { display: none; }
 
 .container { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
 .board-main { max-width: none; margin: 0; padding: 20px 20px 40px; }
@@ -57,7 +154,7 @@ a { color: var(--accent-light); }
 .muted { color: var(--muted-2); }
 .small { font-size: 13px; }
 .ta-right { text-align: right; }
-code { background: #0f1117; border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; }
+code { background: var(--code-bg); border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px; }
 .crumb { margin: 0 0 8px; font-size: 13px; }
 .crumb a { color: var(--muted); text-decoration: none; }
 .crumb a:hover { color: var(--text); }
@@ -96,7 +193,7 @@ textarea { resize: vertical; }
   text-decoration: none; white-space: nowrap;
 }
 .btn:hover { border-color: var(--accent); }
-.btn-primary { background: var(--primary); border-color: var(--primary); }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-ghost { background: transparent; }
 .btn-sm { padding: 4px 10px; font-size: 13px; }
@@ -150,7 +247,7 @@ textarea { resize: vertical; }
   overflow-x: auto; padding-bottom: 20px;
 }
 .col {
-  flex: 0 0 264px; background: #14161f;
+  flex: 0 0 264px; background: var(--col-bg);
   border: 1px solid var(--border); border-radius: var(--radius);
 }
 .col-head {
@@ -160,20 +257,20 @@ textarea { resize: vertical; }
 .col-title { font-size: 13px; font-weight: 600; }
 .col-count { margin-left: auto; font-size: 12px; color: var(--muted-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-3); }
-.dot-idea { background: #718096; }
-.dot-developed { background: #9f7aea; }
-.dot-active { background: #4299e1; }
-.dot-writing { background: #ed8936; }
-.dot-ready { background: #ecc94b; }
-.dot-submitted { background: #38b2ac; }
-.dot-under_review { background: #319795; }
-.dot-in_revision { background: #d69e2e; }
-.dot-accepted { background: #48bb78; }
+.dot-idea { background: var(--st-idea); }
+.dot-developed { background: var(--st-developed); }
+.dot-active { background: var(--st-active); }
+.dot-writing { background: var(--st-writing); }
+.dot-ready { background: var(--st-ready); }
+.dot-submitted { background: var(--st-submitted); }
+.dot-under_review { background: var(--st-under-review); }
+.dot-in_revision { background: var(--st-in-revision); }
+.dot-accepted { background: var(--st-accepted); }
 .dot-published { background: var(--ok); }
-.dot-archived { background: #4a5568; }
+.dot-archived { background: var(--st-archived); }
 
 .col-body { min-height: 80px; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
-.col-body.over { background: rgba(74, 111, 165, .10); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 8px; }
+.col-body.over { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 8px; }
 
 .pcard {
   background: var(--card); border: 1px solid var(--border);
@@ -226,7 +323,7 @@ textarea { resize: vertical; }
   background: var(--card); color: var(--text); padding: 20px 22px;
   width: min(420px, 92vw);
 }
-.modal::backdrop { background: rgba(0, 0, 0, .6); }
+.modal::backdrop { background: var(--overlay); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 
 /* ── project page ── */
@@ -320,7 +417,7 @@ code.key {
   padding: 3px 8px; border-radius: 6px;
 }
 tr.revoked { opacity: .5; }
-.badge-type { color: var(--model, #b794f4); border-color: var(--model, #b794f4); }
+.badge-type { color: var(--model); border-color: var(--model); }
 .badge-ws { color: var(--accent-light); border-color: var(--accent); }
 .ws-check { display: flex; margin: 4px 0; }
 .ws-check input[disabled] + * , .ws-check input[disabled] { opacity: .45; }
@@ -329,7 +426,7 @@ tr.revoked { opacity: .5; }
 .hscroll {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   height: 15px; overflow-x: auto; overflow-y: hidden;
-  background: rgba(15, 17, 23, .92);
+  background: var(--scrim);
   border-top: 1px solid var(--border);
   backdrop-filter: blur(4px);
 }
@@ -346,7 +443,7 @@ tr.revoked { opacity: .5; }
 
 /* ── submissions: the open attempt, then the chain ── */
 .sub-live {
-  background: rgba(74, 111, 165, .10);
+  background: var(--accent-tint);
   border: 1px solid var(--accent);
   border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px;
 }
@@ -389,7 +486,7 @@ tr.revoked { opacity: .5; }
 
 /* ── delete: confirmation and toast ── */
 .btn-danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
-.btn-danger:hover { background: #3a1a1a; border-color: var(--danger); }
+.btn-danger:hover { background: var(--danger-bg-hover); border-color: var(--danger); }
 .danger-zone summary { color: var(--danger); }
 .loss { margin: 6px 0 10px; padding-left: 20px; font-size: 13px; }
 .loss li { padding: 1px 0; }
@@ -401,7 +498,7 @@ tr.revoked { opacity: .5; }
   background: var(--card); border: 1px solid var(--border);
   border-left: 3px solid var(--danger);
   border-radius: var(--radius); padding: 10px 14px; font-size: 14px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+  box-shadow: 0 8px 28px var(--shadow-float);
 }
 .toast form { margin: 0; }
 
